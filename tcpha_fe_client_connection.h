@@ -14,8 +14,11 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <net/sock.h>
+#include <linux/sched.h>
 
 extern kmem_cache_t *tcpha_fe_conn_cachep;
+
+#define MAX_INT 0x7ffffff
 
 /* A connection with client */
 struct tcpha_fe_conn {
@@ -24,10 +27,20 @@ struct tcpha_fe_conn {
 	struct list_head list;	/* d-linked list head */
 };
 
+struct tcpha_fe_herder {
+	struct list_head conn_pool; /* A pool of connections for us to maintain */
+	rwlock_t pool_lock; /* Lock for the connection pool */
+	atomic_t pool_size; /* Number of connections currently in pool */
+	int cpu; /* The cpu this herders is bound to */
+	struct list_head herder_list; /* This is for the list of herders */
+};
+
 extern int init_connections(void);
 
-extern struct tcpha_fe_conn* tcpha_fe_conn_create(struct socket *sock);
-
+extern int tcpha_fe_conn_create(struct socket *sock);
+extern void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn);
 extern int destroy_connections(void);
 
+void init_connection_herder(struct tcpha_fe_herder *herder, int cpu);
+void destroy_connection_herder(struct tcpha_fe_herder *herder);
 #endif /* TCPHA_FE_CLIENT_CONNECTION_H_ */

@@ -19,4 +19,4 @@ BUILD_DIR := build
 
 obj-m := ktcphafe.o
 
-ktcphafe-objs := tcpha_fe.o tcpha_fe_server.o tcpha_fe_client_connection.o
+ktcphafe-objs := tcpha_fe.o tcpha_fe_server.o tcpha_fe_client_connection.o tcpha_fe_socket_functions.o
