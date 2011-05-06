@@ -48,11 +48,6 @@ int tcpha_fe_server_daemon(void * __service)
 		if (err < 0) {
 			schedule_timeout_interruptible(main_sleep_time);
 		} else {
-			/* Map a file descriptor to the socket */
-			err = sock_map_fd(newsock);
-			if (err < 0)
-				goto connection_err;
-
 			err = tcpha_fe_conn_create(newsock);
 			if (err < 0)
 				goto connection_err;

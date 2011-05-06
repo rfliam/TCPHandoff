@@ -15,10 +15,15 @@
 #include <linux/slab.h>
 #include <net/sock.h>
 #include <linux/sched.h>
+#include <linux/workqueue.h>
+#include <linux/kthread.h>
 
 extern kmem_cache_t *tcpha_fe_conn_cachep;
 
 #define MAX_INT 0x7ffffff
+#define TCPHA_EPOLL_SIZE 1024
+
+struct tcp_eventpoll; /* Pre dec so I can use it else where */
 
 /* A connection with client */
 struct tcpha_fe_conn {
@@ -31,16 +36,24 @@ struct tcpha_fe_herder {
 	struct list_head conn_pool; /* A pool of connections for us to maintain */
 	rwlock_t pool_lock; /* Lock for the connection pool */
 	atomic_t pool_size; /* Number of connections currently in pool */
+
 	int cpu; /* The cpu this herders is bound to */
+	struct tcp_eventpoll *eventpoll; /* My epoller */
+	
 	struct list_head herder_list; /* This is for the list of herders */
+
+	struct work_struct work; /* This is my own job item */
+	struct workqueue_struct *processor_work; /* This is the job item
+												for my processor */
+
+	struct task_struct *task; /* The task this boy is actually running in */
 };
 
 extern int init_connections(void);
+extern int destroy_connections(void);
 
 extern int tcpha_fe_conn_create(struct socket *sock);
 extern void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn);
-extern int destroy_connections(void);
 
-void init_connection_herder(struct tcpha_fe_herder *herder, int cpu);
-void destroy_connection_herder(struct tcpha_fe_herder *herder);
+
 #endif /* TCPHA_FE_CLIENT_CONNECTION_H_ */
