@@ -1,5 +1,9 @@
 #include "tcpha_fe_poll.h"
 
+/* Memory cache for epoll items */
+struct kmem_cache *tcp_ep_item_cachep = NULL;
+atomic_t item_cache_use = ATOMIC_INIT(0);
+
 /* Every socket we are epolling gets one of these linked in to the hash */
 struct tcp_ep_item {
 	/* Structure Lock, should be got with an IRQ lock
@@ -34,8 +38,8 @@ struct tcp_ep_item {
 /* Private Method Prototypes */
 /*---------------------------------------------------------------------------*/
 /* Constructor/destructors for our structs */
-static int tcp_ep_item_alloc(struct tcp_eventpoll *eventpoll, struct tcp_ep_item **item);
-static void tcp_ep_item_free(struct tcp_eventpoll *eventpoll, struct tcp_ep_item *item);
+static int tcp_ep_item_alloc(struct tcp_ep_item **item);
+static void tcp_ep_item_free(struct tcp_ep_item *item);
 
 static int inline tcp_epoll_alloc(struct tcp_eventpoll **eventpoll);
 static void inline tcp_epoll_free(struct tcp_eventpoll *eventpoll);
@@ -74,17 +78,25 @@ int tcp_epoll_init(struct tcp_eventpoll **eventpoll)
 	INIT_LIST_HEAD(&ep->ready_list);
 	rwlock_init(&ep->list_lock);
 	ep->hash_root = RB_ROOT;
-	ep->tcp_ep_item_cachep = kmem_cache_create("tcp_ep_itemcache", 
-									   sizeof(struct tcp_ep_item), 
-									                            0,
-								    SLAB_HWCACHE_ALIGN|SLAB_PANIC,
-					                                   NULL, NULL);
+
+	/* Guard against multiple initilization, make it for the first user */
+	if(atomic_inc_return(&item_cache_use) == 1) {
+		tcp_ep_item_cachep = kmem_cache_create("tcp_ep_itemcache", 
+										   sizeof(struct tcp_ep_item), 
+																	0,
+										SLAB_HWCACHE_ALIGN|SLAB_PANIC,
+														   NULL, NULL);
+	}
 	return 0;
 }
 
 void tcp_epoll_destroy(struct tcp_eventpoll *eventpoll)
 {
-		tcp_epoll_free(eventpoll);
+	/* Destroy for the last user */
+	if (atomic_dec_and_test(&item_cache_use)) {
+			kmem_cache_destroy(tcp_ep_item_cachep);
+	}
+	tcp_epoll_free(eventpoll);
 }
 
 static int tcp_epoll_alloc(struct tcp_eventpoll **eventpoll)
@@ -98,10 +110,14 @@ static int tcp_epoll_alloc(struct tcp_eventpoll **eventpoll)
 	return 0;
 }
 
-static int tcp_ep_item_alloc(struct tcp_eventpoll *ep, struct tcp_ep_item **item)
+static int tcp_ep_item_alloc(struct tcp_ep_item **item)
 {
-	struct tcp_ep_item *epi = kmem_cache_alloc(ep->tcp_ep_item_cachep,
-											              SLAB_KERNEL);
+	struct tcp_ep_item *epi;
+
+	if (!tcp_ep_item_cachep)
+		return -1;
+
+	epi = kmem_cache_alloc(tcp_ep_item_cachep, SLAB_KERNEL);
 
 	if(!epi)
 		return -ENOMEM;
@@ -116,16 +132,15 @@ static int tcp_ep_item_alloc(struct tcp_eventpoll *ep, struct tcp_ep_item **item
 	return 0;
 }
 
-static void tcp_ep_item_free(struct tcp_eventpoll *ep, struct tcp_ep_item *item)
+static void tcp_ep_item_free(struct tcp_ep_item *item)
 {
 	if (item && atomic_dec_and_test(&item->usecnt))
-		kmem_cache_free(ep->tcp_ep_item_cachep, item);
+		kmem_cache_free(tcp_ep_item_cachep, item);
 }
 
 static void inline tcp_epoll_free(struct tcp_eventpoll *eventpoll)
 {
 	if (eventpoll) {
-		kmem_cache_destroy(eventpoll->tcp_ep_item_cachep);
 		kfree(eventpoll);
 	}
 }
@@ -136,10 +151,10 @@ int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsig
 {
 	int err;
 	unsigned int mask;
-	struct tcp_ep_item *item;
+	struct tcp_ep_item *item = NULL;
 
 	/* Allocate our item */
-	err = tcp_ep_item_alloc(eventpoll, &item);
+	err = tcp_ep_item_alloc(&item);
 	if(unlikely(err))
 		return err;
 	
@@ -170,14 +185,13 @@ int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsig
 	/* May occur if the ep goes away while we are trying to insert
 	 * an item. */
 insert_fail:
-	tcp_ep_item_free(eventpoll, item);
+	tcp_ep_item_free(item);
 	return err;
 }
 
 void tcp_epoll_remove(struct tcp_eventpoll *eventpoll, struct socket *sock)
 {
 	/* Remove the item from all relevant structs etc */
-	return -1;
 }
 
 int tcp_epoll_setflags(struct tcp_eventpoll *eventpoll, struct socket *sock, unsigned int flags)

@@ -47,9 +47,6 @@ struct tcp_eventpoll {
 
 	/* RB-Tree used as hash table to store monitore socket structs */
 	struct rb_root hash_root;
-
-	/* Memory cache for epoll items */
-	struct kmem_cache *tcp_ep_item_cachep;
 };
 
 /* Epoll setup and destroy */

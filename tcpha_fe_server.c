@@ -63,6 +63,7 @@ connection_err:
 	/* We are done */
 	printk(KERN_ALERT "Server Shutting Down\n");
 	destroy_connections();
+	printk(KERN_ALERT "Connections destroyed\n");
 	pull_down_server_socket(server);
 	atomic_set(&server->running, 0);
 	return 0;

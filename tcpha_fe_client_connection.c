@@ -221,9 +221,13 @@ void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn)
 static inline void destroy_connection_herders(void)
 {	
 	struct tcpha_fe_herder *herder, *next;
+	unsigned int num = 0;
+	printk(KERN_ALERT "Destroying Connections");
 	write_lock(&conn_herders_rwlock);
 	list_for_each_entry_safe(herder, next, &connection_herders, herder_list) {
+		printk(KERN_ALERT "Stoping Herder%u\n", num);
 		kthread_stop(herder->task);
+		printk(KERN_ALERT "Destroying Herder\n");
 		herder_destroy(herder);
     }
 	write_unlock(&conn_herders_rwlock);
@@ -249,7 +253,8 @@ int destroy_connections(void)
 static int tcpha_fe_herder_run(void *data)
 {
 	struct tcpha_fe_herder *herder = (struct tcpha_fe_herder*)data;
-
+	printk(KERN_ALERT "Running Herder %u\n", herder->CPU);
+	
 	/* While we are still running */
 	set_current_state(TASK_INTERRUPTIBLE);
 	while(!kthread_should_stop()) {
@@ -262,9 +267,12 @@ static int tcpha_fe_herder_run(void *data)
 		/* Schedule ones with stuff to do for processing */
 
 		/* Delete dead ones */
-		
+		schedule_timeout_interruptible(HZ);
 		set_current_state(TASK_INTERRUPTIBLE);
 	}
+
+	printk(KERN_ALERT "Herder Shutting Down\n");
+
 	set_current_state(TASK_RUNNING);
 
 	return 0;
