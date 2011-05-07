@@ -38,6 +38,8 @@ struct tcpha_fe_server_config {
     int max_clients;			/* max clients permitted */
 };
 
+struct herder_list;
+
 /* This is the structure representing a server */
 struct tcpha_fe_server {
     /* server configuration */
@@ -57,6 +59,9 @@ struct tcpha_fe_server {
     struct socket *mainsock;   	/* listen socket */
     atomic_t workercount;		/* workers counter */
     atomic_t running;				/* running flag */
+
+	/* Herders */
+	struct herder_list *herders;
 };
 
 /* The "primary" server thread responsible for keeping track

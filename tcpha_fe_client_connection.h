@@ -18,18 +18,22 @@
 #include <linux/workqueue.h>
 #include <linux/kthread.h>
 
-extern kmem_cache_t *tcpha_fe_conn_cachep;
-
 #define MAX_INT 0x7ffffff
 #define TCPHA_EPOLL_SIZE 1024
 
-struct tcp_eventpoll; /* Pre dec so I can use it else where */
+extern kmem_cache_t *tcpha_fe_conn_cachep;
+struct tcp_eventpoll; /* Pre dec so I can use it here */
 
 /* A connection with client */
 struct tcpha_fe_conn {
 	rwlock_t lock;
 	struct socket *csock;	/* socket connected to client */
 	struct list_head list;	/* d-linked list head */
+};
+
+struct herder_list {
+	struct list_head list;
+	rwlock_t lock;
 };
 
 struct tcpha_fe_herder {
@@ -49,11 +53,9 @@ struct tcpha_fe_herder {
 	struct task_struct *task; /* The task this boy is actually running in */
 };
 
-extern int init_connections(void);
-extern int destroy_connections(void);
+extern int init_connections(struct herder_list *herders);
+extern int destroy_connections(struct herder_list *herders);
 
-extern int tcpha_fe_conn_create(struct socket *sock);
-extern void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn);
-
+extern int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock);
 
 #endif /* TCPHA_FE_CLIENT_CONNECTION_H_ */

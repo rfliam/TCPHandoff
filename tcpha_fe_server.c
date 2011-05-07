@@ -31,11 +31,6 @@ int tcpha_fe_server_daemon(void * __service)
 	if (err < 0)
 		goto server_setup_fail;
 
-	/* Setup the connections pool */
-	err = init_connections();
-	if (err)
-		goto connection_setup_fail;
-
 	/* We are go */
 	atomic_set(&server->running, 1);
 	while (!kthread_should_stop()) {
@@ -48,7 +43,7 @@ int tcpha_fe_server_daemon(void * __service)
 		if (err < 0) {
 			schedule_timeout_interruptible(main_sleep_time);
 		} else {
-			err = tcpha_fe_conn_create(newsock);
+			err = tcpha_fe_conn_create(server->herders, newsock);
 			if (err < 0)
 				goto connection_err;
 
@@ -62,14 +57,9 @@ connection_err:
 
 	/* We are done */
 	printk(KERN_ALERT "Server Shutting Down\n");
-	destroy_connections();
-	printk(KERN_ALERT "Connections destroyed\n");
 	pull_down_server_socket(server);
 	atomic_set(&server->running, 0);
 	return 0;
-
-connection_setup_fail:
-	pull_down_server_socket(server);
 
 server_setup_fail:
 	printk(KERN_ALERT "Server Failed to Initialize\n");

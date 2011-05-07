@@ -9,11 +9,11 @@ clean:
 	rm -rf build/
 
 install:	build/ktcphafe.ko
-	/sbin/insmod build/ktcphafe.ko
+	sudo /sbin/insmod build/ktcphafe.ko
 	/sbin/lsmod | less
 
 uninstall:
-	/sbin/rmmod ktcphafe
+	sudo /sbin/rmmod ktcphafe
 
 BUILD_DIR := build
 

@@ -48,7 +48,7 @@ static void inline tcp_epoll_free(struct tcp_eventpoll *eventpoll);
 /* Called by the socket wakequeue when actvitiy occurs on it, determines if 
  * we should wake any sleepers and add item to readylist */
 static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *key);
-static unsigned int tcp_epoll_check_events(struct tcp_ep_item *item);
+static inline unsigned int tcp_epoll_check_events(struct tcp_ep_item *item);
 static inline struct tcp_ep_item *tcp_ep_item_from_wait(wait_queue_t *p);
 static inline void add_item_to_readylist(struct tcp_ep_item *item);
 
@@ -178,6 +178,7 @@ int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsig
 	if (mask)
 		add_item_to_readylist(item); /* Locks for us */
 
+	/* Done last so no contention problems */
 	add_wait_queue(item->whead, &item->wait);
 
 	return 0;
@@ -209,7 +210,7 @@ int tcp_epoll_wait(struct tcp_eventpoll *eventpoll, struct socket *sockets[], in
 /*---------------------------------------------------------------------------*/
 
 /* This method REQUIRES to hold the proper locks on item */
-static unsigned int tcp_epoll_check_events(struct tcp_ep_item *item)
+static inline unsigned int tcp_epoll_check_events(struct tcp_ep_item *item)
 {
 	/* Nice little trick, by calling poll without a poll table..
 	 * poll returns immediately on tcp sockets (see poll_wait)
@@ -219,17 +220,25 @@ static unsigned int tcp_epoll_check_events(struct tcp_ep_item *item)
 
 static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *key)
 {
-	struct tcp_ep_item *item = tcp_ep_item_from_wait(curr);
+	struct tcp_ep_item *item;
 	int flags;
 	unsigned int mask;
-
+	struct inet_sock *isk;
+	
+	printk(KERN_ALERT "Waking up from socket functionality");
+	item = tcp_ep_item_from_wait(curr);
 	/* Unlikely to be held lock so not a big deal, this would only "block"
-	 * if we are changing options at the same time on the item */
+	 * if we are changing options at the same time on the item or
+	 * if this functions is triggered on multiple cpus at once*/
+	isk = inet_sk(item->sock->sk);
+	printk(KERN_ALERT "Got Item: %u.%u.%u.%u", NIPQUAD(isk->daddr));
 	write_lock_irqsave(&item->lock, flags);
 	mask = tcp_epoll_check_events(item);
 	/* If the item has events that interest us... */
 	if (mask) {
 		add_item_to_readylist(item);
+		/* We may want the below to occur in a workqueue instead  of
+		 * in our interrupt context (need to figure out relative cost) */
 		if (waitqueue_active(&item->eventpoll->poll_wait))
 			/* __wake_up_locked, the epoll version of this isn't exported, hope
 			 * this works (looks like an extra lock call.. but w/e */

@@ -9,18 +9,15 @@
 #include "tcpha_fe_poll.h"
 #include "tcpha_fe_socket_functions.h"
 
-kmem_cache_t *tcpha_fe_conn_cachep;
-static LIST_HEAD(connection_herders);
-static rwlock_t conn_herders_rwlock; /* This is for future "what if" cases,
-										currently herders are only
-										created or deleted by a single thread */
+kmem_cache_t *tcpha_fe_conn_cachep = NULL;
+atomic_t mem_cache_use = ATOMIC_INIT(0);
 static int num_pools;
 /* This cache is for allocating work to do work_structs */
-kmem_cache_t *work_struct_cachep;
+kmem_cache_t *work_struct_cachep = NULL;
 
 /* Private Functions */
 /*---------------------------------------------------------------------------*/
-static inline void destroy_connection_herders(void);
+static void destroy_connection_herders(struct herder_list *herders);
 static int tcpha_fe_herder_run(void *herder);
 
 /* Initilazers etc. */
@@ -34,6 +31,9 @@ static void herder_destroy(struct tcpha_fe_herder *herder);
 static inline struct tcpha_fe_herder *herder_alloc(void);
 static inline void herder_free(struct tcpha_fe_herder *herder);
 
+static inline void herder_list_init(struct herder_list *herders);
+
+static inline void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn);
 /* Function implementations */
 /*---------------------------------------------------------------------------*/
 
@@ -103,41 +103,53 @@ static inline void work_free(struct work_struct *work)
 	kmem_cache_free(work_struct_cachep, work);
 }
 
-/* External setup */
+static inline void herder_list_init(struct herder_list *herders)
+{
+	INIT_LIST_HEAD(&herders->list);
+	rwlock_init(&herders->lock);
+}
+/* Externaly Available Functions */
 /*---------------------------------------------------------------------------*/
-int init_connections(void)
+/*
+ * Herder should be already alloced, but no need to init it (i will do that). 
+ */
+int init_connections(struct herder_list *herders)
 {
 	int cpu;
 	int err;
 	struct tcpha_fe_herder *herder;
+	herder_list_init(herders);
 
-	/* Create our memory cache for connections lists */
-	tcpha_fe_conn_cachep = kmem_cache_create("tcpha_fe_conn",
-						      sizeof(struct tcpha_fe_conn), 0,
-						      SLAB_HWCACHE_ALIGN, NULL, NULL);
+	atomic_inc(&mem_cache_use);
+	/* Create our memory caches if they don't already exist */
+	if (tcpha_fe_conn_cachep == NULL)
+		tcpha_fe_conn_cachep = kmem_cache_create("tcpha_fe_conn",
+								  sizeof(struct tcpha_fe_conn), 0,
+								  SLAB_HWCACHE_ALIGN, NULL, NULL);
 	if (!tcpha_fe_conn_cachep)
 		return -ENOMEM;
 
-	work_struct_cachep = kmem_cache_create("tcpha_work_struct_cache", 
-			sizeof(struct work_struct), 
-			0,
-			SLAB_HWCACHE_ALIGN,
-			NULL, NULL);
+	if (work_struct_cachep == NULL)
+		work_struct_cachep = kmem_cache_create("tcpha_work_struct_cache", 
+				sizeof(struct work_struct), 
+				0,
+				SLAB_HWCACHE_ALIGN,
+				NULL, NULL);
 
 	if (!work_struct_cachep)
 		goto errorWorkAlloc;
-	
-	rwlock_init(&conn_herders_rwlock);
-	write_lock(&conn_herders_rwlock);
+
+	herder_list_init(herders);
+	write_lock(&herders->lock);
 	/* Create our connection pools to work from */
 	/* One connection pool per processor */
 	num_pools = 0;
 	for_each_online_cpu(cpu) {
 		err = herder_init(&herder, cpu);
 		if (err)
-			goto errorHerderAlloc;		
-		num_pools++;
-		list_add(&connection_herders, &herder->herder_list);
+			goto errorHerderAlloc;
+	
+		list_add(&herder->herder_list, &herders->list);
 		printk(KERN_ALERT "Adding Herder for CPU: %u\n", cpu);
 		/* Initialize our work, passing ourself as the data object
 		 * (basically the this pointer lol) */
@@ -148,39 +160,43 @@ int init_connections(void)
 		else
 			goto errHerderProc;
 	}
-	write_unlock(&conn_herders_rwlock);
+	write_unlock(&herders->lock);
 	
 	return 0;
 
 errHerderProc:
 	printk(KERN_ALERT "Error Making Herder Process");
 errorHerderAlloc:
+	destroy_connection_herders(herders);
 	kmem_cache_destroy(work_struct_cachep);
-	destroy_connection_herders();
 errorWorkAlloc:
 	kmem_cache_destroy(tcpha_fe_conn_cachep);
-
+	atomic_dec(&mem_cache_use);
 	return -ENOMEM;
 }
 
 /* TODO: This code needs error handling */
-int tcpha_fe_conn_create(struct socket *sock)
+/*
+ * Add a socket connection to the herders to be processed.
+ * @herders : The list of herders to chose from
+ * @sock : The socket to add
+ */
+int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 {
 	struct tcpha_fe_herder *herder;
 	int min_pool_size = MAX_INT;
 	int herder_pool_size = 0;
-	/* TODO: Supress the warning here or something */
 	struct tcpha_fe_herder *least_loaded = NULL;
 	/* Setup connection */
-	struct tcpha_fe_conn *connection = kmem_cache_alloc(tcpha_fe_conn_cachep, GFP_KERNEL);
-	//int err;
+	struct tcpha_fe_conn *connection = kmem_cache_alloc(tcpha_fe_conn_cachep,
+																  GFP_KERNEL);
 
 	connection->csock = sock;
 	INIT_LIST_HEAD(&(connection->list));
 
 	/* search for least loaded pool */
-	read_lock(&conn_herders_rwlock);
-	list_for_each_entry(herder, &connection_herders, herder_list) {
+	read_lock(&herders->lock);
+	list_for_each_entry(herder, &herders->list, herder_list) {
 		/* We are not THAT concered if we end up sending to a
 		 * slightly more loaded pool, so no need to lock the pool
 		 * just use atomic operations */
@@ -190,14 +206,14 @@ int tcpha_fe_conn_create(struct socket *sock)
 			least_loaded = herder;
 		}
 	}
-	read_unlock(&conn_herders_rwlock);
+	read_unlock(&herders->lock);
 
 	/* Now we lock the pool, add the connection
 	 * to the poll in and make sure to increase
 	 * our pool count! */
-	if (!least_loaded) {
+	if (least_loaded) {
 		write_lock(&least_loaded->pool_lock);
-		list_add(&connection->list, &least_loaded->conn_pool);
+		list_add_tail(&herders->list, &least_loaded->conn_pool);
 		atomic_inc(&least_loaded->pool_size);
 		write_unlock(&least_loaded->pool_lock);
 		printk(KERN_ALERT "Connection Created on Pool: %u\n", least_loaded->cpu);
@@ -210,7 +226,8 @@ int tcpha_fe_conn_create(struct socket *sock)
 }
 
 /* Tear down functions for the entire mess */
-void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn)
+/*---------------------------------------------------------------------------*/
+static inline void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn)
 {
 	sock_release(conn->csock);
 	conn->csock = NULL;
@@ -218,29 +235,33 @@ void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn)
 	kmem_cache_free(tcpha_fe_conn_cachep, conn);
 }
 
-static inline void destroy_connection_herders(void)
+static void destroy_connection_herders(struct herder_list *herders)
 {	
 	struct tcpha_fe_herder *herder, *next;
-	unsigned int num = 0;
-	printk(KERN_ALERT "Destroying Connections");
-	write_lock(&conn_herders_rwlock);
-	list_for_each_entry_safe(herder, next, &connection_herders, herder_list) {
-		printk(KERN_ALERT "Stoping Herder%u\n", num);
-		kthread_stop(herder->task);
+	int err = 0;
+	printk(KERN_ALERT "Destroying Connections\n");
+
+	/* TODO: Re-write with locking (kthread_stop does not work in an
+	 * atomic context !)*/
+	list_for_each_entry_safe(herder, next, &herders->list, herder_list) {
+		printk(KERN_ALERT "Stoping Herder %u\n", herder->cpu);
+		err = kthread_stop(herder->task);
+		if (err)
+			printk(KERN_ALERT "Error Killing Proc\n");
 		printk(KERN_ALERT "Destroying Herder\n");
 		herder_destroy(herder);
-    }
-	write_unlock(&conn_herders_rwlock);
+	}
 }
 
-int destroy_connections(void)
+int destroy_connections(struct herder_list *herders)
 {
-	int err;
+	int err = 0;
+	destroy_connection_herders(herders);
 
-	destroy_connection_herders();
-
-	err = kmem_cache_destroy(tcpha_fe_conn_cachep);
-	err |= kmem_cache_destroy(work_struct_cachep);
+	if (atomic_dec_and_test(&mem_cache_use)) {
+		err = kmem_cache_destroy(tcpha_fe_conn_cachep);
+		err |= kmem_cache_destroy(work_struct_cachep);
+	}
 	return err;
 }
 
@@ -253,27 +274,16 @@ int destroy_connections(void)
 static int tcpha_fe_herder_run(void *data)
 {
 	struct tcpha_fe_herder *herder = (struct tcpha_fe_herder*)data;
-	printk(KERN_ALERT "Running Herder %u\n", herder->CPU);
-	
-	/* While we are still running */
+	printk(KERN_ALERT "Running Herder %u\n", herder->cpu);
+
 	set_current_state(TASK_INTERRUPTIBLE);
-	while(!kthread_should_stop()) {
-		if (signal_pending(current)) {
-		}
-		/* Poll our open connections */ 
-		read_lock(&herder->pool_lock);
-		read_unlock(&herder->pool_lock);
-
-		/* Schedule ones with stuff to do for processing */
-
-		/* Delete dead ones */
-		schedule_timeout_interruptible(HZ);
+	while (!kthread_should_stop()) {
+		schedule();
 		set_current_state(TASK_INTERRUPTIBLE);
 	}
+	set_current_state(TASK_RUNNING);
 
 	printk(KERN_ALERT "Herder Shutting Down\n");
-
-	set_current_state(TASK_RUNNING);
 
 	return 0;
 }

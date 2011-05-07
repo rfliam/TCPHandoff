@@ -6,25 +6,35 @@
  */
 
 #include "tcpha_fe.h"
+#include "tcpha_fe_client_connection.h"
 #include "tcpha_fe_server.h"
 
 static struct task_struct *server_task;
 static struct tcpha_fe_server server;
+static struct herder_list herders;
 
 /* Module initilization and setup methods */
 /*---------------------------------------------------------------------------*/
 static int tcpha_init(void) {
 	printk(KERN_ALERT "TCPHA Startup\n");
 
+	/* Startup the herder threads */
+	init_connections(&herders);
+
+	/* Startup the acceptor thread */
 	server.conf.port = 8080;
+	server.herders = &herders;
 	server_task = kthread_run(tcpha_fe_server_daemon, &server, "TCPHandoff Server");
 	return 0;
 }
 
 static void tcpha_exit(void) {
-	/* Kill the server daemon */
+	/* Kill the acceptor thread */
 	if(atomic_read(&server.running) && kthread_stop(server_task))
 		printk(KERN_ALERT "Server Failed to Unload?");
+
+	/* Kill the herder threads */
+	destroy_connections(&herders);
 
 	printk(KERN_ALERT "TCPHA Done\n");
 }
