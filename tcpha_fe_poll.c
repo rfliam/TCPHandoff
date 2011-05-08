@@ -1,5 +1,13 @@
 #include "tcpha_fe_poll.h"
 
+/* Developer Notes:
+ *  The structure lock in tcp_eventpoll "lock" is used to protect against concurrent
+ *  modification of the epoll. The other two locks are to protect against the fact that
+ *  we modify the eventpoll (wake, etc.) in an interrupt context. In particular the
+ *  ready list lock list_lock and the epoll item lock "lock". We use the irq variants
+ *  of the spinlocks as they disable interrupts during there operation. Hold them for
+ *  as short a time as possible!.
+ */
 /* Memory cache for epoll items */
 struct kmem_cache *tcp_ep_item_cachep = NULL;
 atomic_t item_cache_use = ATOMIC_INIT(0);
@@ -21,9 +29,6 @@ struct tcp_ep_item {
 
 	/* Struct describing the events we are interested in */
 	unsigned int event_flags;
-
-	/* Reference count item */
-	atomic_t usecnt;
 	
 	/* The eventpoll this item is tied too */
 	struct tcp_eventpoll *eventpoll;
@@ -39,13 +44,11 @@ struct tcp_ep_item {
 /*---------------------------------------------------------------------------*/
 /* Constructor/destructors for our structs */
 static int tcp_ep_item_alloc(struct tcp_ep_item **item);
-static void tcp_ep_item_free(struct tcp_ep_item *item);
-/* Used for memory management, you should always try to free after
- * this. */
-static inline void get_ep_item(struct tcp_ep_item *item);
+static void tcp_ep_item_destroy(struct tcp_ep_item *item);
+static inline void tcp_ep_item_free(struct tcp_ep_item *item);
 
-static int inline tcp_epoll_alloc(struct tcp_eventpoll **eventpoll);
-static void inline tcp_epoll_free(struct tcp_eventpoll *eventpoll);
+static inline int tcp_epoll_alloc(struct tcp_eventpoll **eventpoll);
+static inline void tcp_epoll_free(struct tcp_eventpoll *eventpoll);
 
 /* Utility methods */
 /* Called by the socket wakequeue when actvitiy occurs on it, determines if 
@@ -54,11 +57,11 @@ static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *k
 static inline unsigned int tcp_epoll_check_events(struct tcp_ep_item *item);
 static inline struct tcp_ep_item *tcp_ep_item_from_wait(wait_queue_t *p);
 static inline void add_item_to_readylist(struct tcp_ep_item *item);
+static inline void remove_item_from_readylist(struct tcp_ep_item *item);
 
 /* RBTree (hash) Usage Methods */
-static int tcp_ep_hash_insert(struct tcp_eventpoll *eventpoll, struct tcp_ep_item *item);
+static int tcp_ep_hash_insert(struct tcp_ep_item *item);
 static struct tcp_ep_item *tcp_ep_hash_find(struct tcp_eventpoll *eventpoll, struct socket *sock);
-//static int tcp_ep_hash_remove(struct tcp_eventpoll *eventpoll, struct socket *);
 
 static inline void tcp_ep_rb_initnode(struct rb_node *n);
 static inline void tcp_ep_rb_removenode(struct rb_node *n, struct rb_root *r);
@@ -76,14 +79,14 @@ int tcp_epoll_init(struct tcp_eventpoll **eventpoll)
 		return err;
 	
 	ep = *eventpoll;
-	rwlock_init(&ep->lock);
 	init_waitqueue_head(&ep->poll_wait);
 	INIT_LIST_HEAD(&ep->ready_list);
+	rwlock_init(&ep->lock);
 	rwlock_init(&ep->list_lock);
 	ep->hash_root = RB_ROOT;
 
 	/* Guard against multiple initilization, make it for the first user */
-	if(atomic_inc_return(&item_cache_use) == 1) {
+	if (atomic_inc_return(&item_cache_use) == 1) {
 		tcp_ep_item_cachep = kmem_cache_create("tcp_ep_itemcache", 
 										   sizeof(struct tcp_ep_item), 
 																	0,
@@ -93,16 +96,7 @@ int tcp_epoll_init(struct tcp_eventpoll **eventpoll)
 	return 0;
 }
 
-void tcp_epoll_destroy(struct tcp_eventpoll *eventpoll)
-{
-	/* Destroy for the last user */
-	if (atomic_dec_and_test(&item_cache_use)) {
-			kmem_cache_destroy(tcp_ep_item_cachep);
-	}
-	tcp_epoll_free(eventpoll);
-}
-
-static int tcp_epoll_alloc(struct tcp_eventpoll **eventpoll)
+static inline int tcp_epoll_alloc(struct tcp_eventpoll **eventpoll)
 {
 	struct tcp_eventpoll *ep = kzalloc(sizeof(struct tcp_eventpoll), GFP_KERNEL);
 
@@ -111,6 +105,28 @@ static int tcp_epoll_alloc(struct tcp_eventpoll **eventpoll)
 
 	*eventpoll = ep;
 	return 0;
+}
+
+void tcp_epoll_destroy(struct tcp_eventpoll *ep)
+{
+	struct rb_node *node;
+	/* Cleanup epoll items in the hash */
+	write_lock(&ep->lock);
+	for (node = rb_first(&ep->hash_root); node; node = rb_next(node))
+		tcp_ep_item_destroy(rb_entry(node, struct tcp_ep_item, hash_node)); 
+	write_unlock(&ep->lock);
+
+	tcp_epoll_free(ep);
+	/* Destroy for the last user */
+	if (atomic_dec_and_test(&item_cache_use)) {
+			kmem_cache_destroy(tcp_ep_item_cachep);
+	}
+}
+
+static inline void tcp_epoll_free(struct tcp_eventpoll *eventpoll)
+{
+	if (eventpoll)
+		kfree(eventpoll);
 }
 
 static int tcp_ep_item_alloc(struct tcp_ep_item **item)
@@ -129,31 +145,40 @@ static int tcp_ep_item_alloc(struct tcp_ep_item **item)
 	tcp_ep_rb_initnode(&epi->hash_node);
 	INIT_LIST_HEAD(&epi->rd_list_link);
 	epi->event_flags = 0;
-	atomic_set(&epi->usecnt, 1);
-
 	*item = epi;
 	return 0;
 }
 
-static void tcp_ep_item_free(struct tcp_ep_item *item)
+static void tcp_ep_item_destroy(struct tcp_ep_item *item)
 {
-	if (item && atomic_dec_and_test(&item->usecnt))
+	struct tcp_eventpoll *ep = item->eventpoll;
+	int flags;
+	/* Now remove ourseleves from any poll stuff */
+	/* We let go of the lock quickly since no one else should now cause
+	 * concurrent modification to the item */
+	write_lock_irqsave(&item->lock, flags);
+	remove_wait_queue(item->whead, &item->wait);
+	write_unlock_irqrestore(&item->lock, flags);
+	
+	/* Delete the item from the hash and readylist */
+	write_lock(&ep->lock);
+	tcp_ep_rb_removenode(&item->hash_node, &ep->hash_root);
+	write_unlock(&ep->lock);
+
+	/* Locks for us */
+	remove_item_from_readylist(item); 
+		
+	/* Delete the item */
+	tcp_ep_item_free(item);
+}
+
+static inline void tcp_ep_item_free(struct tcp_ep_item *item)
+{
+	if (item)
 		kmem_cache_free(tcp_ep_item_cachep, item);
 }
 
-static inline void get_ep_item(struct tcp_ep_item *item)
-{
-	atomic_inc(&item->usecnt);
-}
-
-static void inline tcp_epoll_free(struct tcp_eventpoll *eventpoll)
-{
-	if (eventpoll) {
-		kfree(eventpoll);
-	}
-}
-
-/* Modification and Usage Methods */
+/* Modification and Usage Methods (You can get to these from outside) */
 /*---------------------------------------------------------------------------*/
 int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsigned int flags)
 {
@@ -177,7 +202,9 @@ int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsig
 	item->whead = sock->sk->sk_sleep;
 
 	/* Add it to the hash*/
-	err = tcp_ep_hash_insert(eventpoll, item);
+	write_lock(&eventpoll->lock);
+	err = tcp_ep_hash_insert(item);
+	write_unlock(&eventpoll->lock);
 	if (err)
 		goto insert_fail;
 
@@ -199,26 +226,18 @@ insert_fail:
 }
 
 /* Remove the item from all relevant structs etc */
-void tcp_epoll_remove(struct tcp_eventpoll *eventpoll, struct socket *sock)
+void tcp_epoll_remove(struct tcp_eventpoll *ep, struct socket *sock)
 {
 	struct tcp_ep_item *item;
 	
 	/* First find the item for the struct in our RB Tree */
-	item = tcp_ep_hash_find(sock);
-
-	/* If we didn't find it... */
+	read_lock(&ep->lock);
+	item = tcp_ep_hash_find(ep, sock);
+	read_unlock(&ep->lock);
 	if (!item)
 		return;
-	
-	/* Now remove ourseleves from any poll stuff */
-	/* How do I stop race where callback attempts to get lock while
-	 * I am killing the item? We use memory management on the item, when
-	 * callback starts it "grabs" the item (increasing its ref count),
-	 * that way it wont die while its still using it! */
 
-	/* Delete the item from the tree */
-
-	/* Delete the item */
+	tcp_ep_item_destroy(item);	
 }
 
 int tcp_epoll_setflags(struct tcp_eventpoll *eventpoll, struct socket *sock, unsigned int flags)
@@ -246,43 +265,10 @@ static inline unsigned int tcp_epoll_check_events(struct tcp_ep_item *item)
 
 static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *key)
 {
-//	struct tcp_ep_item *item;
-//	int flags;
-//	unsigned int mask;
-//	struct inet_sock *isk;
-	
-//	printk(KERN_ALERT "Waking up from socket functionality");
-//	item = tcp_ep_item_from_wait(curr);
-	/* Unlikely to be held lock so not a big deal, this would only "block"
-	 * if we are changing options at the same time on the item or
-	 * if this functions is triggered on multiple cpus at once*/
-//	isk = inet_sk(item->sock->sk);
-//	printk(KERN_ALERT "Got Item: %u.%u.%u.%u", NIPQUAD(isk->daddr));
-//	write_lock_irqsave(&item->lock, flags);
-//	mask = tcp_epoll_check_events(item);
-	/* If the item has events that interest us... */
-//	if (mask) {
-//		printk(KERN_ALERT "Adding to readylist");
-//		add_item_to_readylist(item);
-//		printk(KERN_ALERT "Added to readylist");
-		/* We may want the below to occur in a workqueue instead  of
-		 * in our interrupt context (need to figure out relative cost) */
-//		if (waitqueue_active(&item->eventpoll->poll_wait)) {
-			/* __wake_up_locked, the epoll version of this isn't exported, hope
-			 * this works (looks like an extra lock call.. but w/e */
-//			printk(KERN_ALERT "Waking Process");
-			//__wake_up(&item->eventpoll->poll_wait, TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE, 1, NULL);
-//			printk(KERN_ALERT "Done Waking Process");	
-//		}
-//	}
-//	write_unlock_irqrestore(&item->lock, flags);
-
-//	printk(KERN_ALERT "Done waking stuff");
 	unsigned int mask = 0;
 	struct tcp_ep_item *item;
 
 	item = tcp_ep_item_from_wait(curr);
-	get_ep_item(item);
 	mask = tcp_epoll_check_events(item);
 
 	if (mask) {
@@ -301,20 +287,30 @@ static inline struct tcp_ep_item *tcp_ep_item_from_wait(wait_queue_t *p)
 static inline void add_item_to_readylist(struct tcp_ep_item *item)
 {
 	int flags;
-	struct tcp_eventpoll *eventpoll = item->eventpoll;
+	struct tcp_eventpoll *ep = item->eventpoll;
 	/* in demand, hold for as short a time as  possible */
-	write_lock_irqsave(&eventpoll->list_lock, flags);
-	list_add_tail(&item->rd_list_link, &eventpoll->ready_list);
-	write_unlock_irqrestore(&eventpoll->list_lock, flags);
+	write_lock_irqsave(&ep->list_lock, flags);
+	list_add_tail(&item->rd_list_link, &ep->ready_list);
+	write_unlock_irqrestore(&ep->list_lock, flags);
 }
 
+static inline void remove_item_from_readylist(struct tcp_ep_item *item)
+{
+	int flags;
+	struct tcp_eventpoll *ep = item->eventpoll;
+	/* in demand, hold for as short a time as  possible */
+	write_lock_irqsave(&ep->list_lock, flags);
+	list_del(&item->rd_list_link);
+	write_unlock_irqrestore(&ep->list_lock, flags);
+}
 /* RBTree Methods */
 /*---------------------------------------------------------------------------*/
 /* All of the blow methods work on the assumption that the caller has done the correct locking */
-static int tcp_ep_hash_insert(struct tcp_eventpoll *eventpoll, struct tcp_ep_item *item)
+static int tcp_ep_hash_insert(struct tcp_ep_item *item)
 {
 	int cmp;
-	struct rb_node **p = &eventpoll->hash_root.rb_node;
+	struct tcp_eventpoll *ep = item->eventpoll;
+	struct rb_node **p = &ep->hash_root.rb_node;
 	struct rb_node *parent = NULL;
 	struct tcp_ep_item *epic;
 
@@ -328,7 +324,7 @@ static int tcp_ep_hash_insert(struct tcp_eventpoll *eventpoll, struct tcp_ep_ite
 	}
 
 	rb_link_node(&item->hash_node, parent, p);
-	rb_insert_color(&item->hash_node, &eventpoll->hash_root);
+	rb_insert_color(&item->hash_node, &ep->hash_root);
 
 	return 0;
 }
@@ -352,7 +348,7 @@ static struct tcp_ep_item *tcp_ep_hash_find(struct tcp_eventpoll *eventpoll, str
 	int found = 0;
 
 	/* Start at root, traverse tree */
-	rbn = &eventpoll->hash_root.rb_node;
+	rbn = eventpoll->hash_root.rb_node;
 	while (rbn) {
 		item = rb_entry(rbn, struct tcp_ep_item, hash_node);
 		cmp = tcp_cmp_sock(sock, item->sock);
