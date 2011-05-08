@@ -225,16 +225,20 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 	return 0;
 }
 
-/* Tear down functions for the entire mess */
+/* Tear down function */
 /*---------------------------------------------------------------------------*/
 static inline void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn)
 {
-	sock_release(conn->csock);
+	if (conn->csock)
+		sock_release(conn->csock);
 	conn->csock = NULL;
 	list_del(&conn->list);
 	kmem_cache_free(tcpha_fe_conn_cachep, conn);
 }
 
+/*
+ * Kill a list of connection herders. Kill them dead.
+ */
 static void destroy_connection_herders(struct herder_list *herders)
 {	
 	struct tcpha_fe_herder *herder, *next;
@@ -244,10 +248,16 @@ static void destroy_connection_herders(struct herder_list *herders)
 	/* TODO: Re-write with locking (kthread_stop does not work in an
 	 * atomic context !)*/
 	list_for_each_entry_safe(herder, next, &herders->list, herder_list) {
+		if (!herder) {
+			printk(KERN_ALERT "Herder Error\n");
+			continue;
+		}
 		printk(KERN_ALERT "Stoping Herder %u\n", herder->cpu);
 		err = kthread_stop(herder->task);
 		if (err)
 			printk(KERN_ALERT "Error Killing Proc\n");
+		/* We need to remove the epoll stuff before killing the connection
+		 * other wise we will end up with bad memory access on the socket */
 		printk(KERN_ALERT "Destroying Herder\n");
 		herder_destroy(herder);
 	}

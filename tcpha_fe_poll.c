@@ -165,7 +165,7 @@ int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsig
 	item->eventpoll = eventpoll;
 
 	/* And set it up to add itself to the readylist when appropriate */
-	init_waitqueue_func_entry(&item->wait, &tcp_epoll_wakeup);
+	init_waitqueue_func_entry(&item->wait, tcp_epoll_wakeup);
 	item->whead = sock->sk->sk_sleep;
 
 	/* Add it to the hash*/
@@ -220,31 +220,47 @@ static inline unsigned int tcp_epoll_check_events(struct tcp_ep_item *item)
 
 static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *key)
 {
-	struct tcp_ep_item *item;
-	int flags;
-	unsigned int mask;
-	struct inet_sock *isk;
+//	struct tcp_ep_item *item;
+//	int flags;
+//	unsigned int mask;
+//	struct inet_sock *isk;
 	
-	printk(KERN_ALERT "Waking up from socket functionality");
-	item = tcp_ep_item_from_wait(curr);
+//	printk(KERN_ALERT "Waking up from socket functionality");
+//	item = tcp_ep_item_from_wait(curr);
 	/* Unlikely to be held lock so not a big deal, this would only "block"
 	 * if we are changing options at the same time on the item or
 	 * if this functions is triggered on multiple cpus at once*/
-	isk = inet_sk(item->sock->sk);
-	printk(KERN_ALERT "Got Item: %u.%u.%u.%u", NIPQUAD(isk->daddr));
-	write_lock_irqsave(&item->lock, flags);
-	mask = tcp_epoll_check_events(item);
+//	isk = inet_sk(item->sock->sk);
+//	printk(KERN_ALERT "Got Item: %u.%u.%u.%u", NIPQUAD(isk->daddr));
+//	write_lock_irqsave(&item->lock, flags);
+//	mask = tcp_epoll_check_events(item);
 	/* If the item has events that interest us... */
-	if (mask) {
-		add_item_to_readylist(item);
+//	if (mask) {
+//		printk(KERN_ALERT "Adding to readylist");
+//		add_item_to_readylist(item);
+//		printk(KERN_ALERT "Added to readylist");
 		/* We may want the below to occur in a workqueue instead  of
 		 * in our interrupt context (need to figure out relative cost) */
-		if (waitqueue_active(&item->eventpoll->poll_wait))
+//		if (waitqueue_active(&item->eventpoll->poll_wait)) {
 			/* __wake_up_locked, the epoll version of this isn't exported, hope
 			 * this works (looks like an extra lock call.. but w/e */
-				__wake_up(&item->eventpoll->poll_wait, TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE, 1, NULL);
+//			printk(KERN_ALERT "Waking Process");
+			//__wake_up(&item->eventpoll->poll_wait, TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE, 1, NULL);
+//			printk(KERN_ALERT "Done Waking Process");	
+//		}
+//	}
+//	write_unlock_irqrestore(&item->lock, flags);
+
+//	printk(KERN_ALERT "Done waking stuff");
+	unsigned int mask = 0;
+	struct tcp_ep_item *item;
+
+	item = tcp_ep_item_from_wait(curr);
+	mask = tcp_epoll_check_events(item);
+
+	if (mask) {
+		printk(KERN_ALERT "Should Wake");
 	}
-	write_unlock_irqrestore(&item->lock, flags);
 
 	return 1;
 }
