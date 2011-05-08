@@ -32,6 +32,7 @@
 /* The primary structure representing an epoll item */
 struct tcp_eventpoll {
 	/* Structure protection lock */
+	/* This lock also protects the hash */
 	rwlock_t lock;
 
 	/* The head used by tcph_epoll_wait */

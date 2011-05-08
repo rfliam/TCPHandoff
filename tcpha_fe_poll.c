@@ -40,6 +40,9 @@ struct tcp_ep_item {
 /* Constructor/destructors for our structs */
 static int tcp_ep_item_alloc(struct tcp_ep_item **item);
 static void tcp_ep_item_free(struct tcp_ep_item *item);
+/* Used for memory management, you should always try to free after
+ * this. */
+static inline void get_ep_item(struct tcp_ep_item *item);
 
 static int inline tcp_epoll_alloc(struct tcp_eventpoll **eventpoll);
 static void inline tcp_epoll_free(struct tcp_eventpoll *eventpoll);
@@ -54,7 +57,7 @@ static inline void add_item_to_readylist(struct tcp_ep_item *item);
 
 /* RBTree (hash) Usage Methods */
 static int tcp_ep_hash_insert(struct tcp_eventpoll *eventpoll, struct tcp_ep_item *item);
-//static struct tcp_ep_item *tcp_ep_hash_find(struct tcp_eventpoll *eventpoll, struct socket *);
+static struct tcp_ep_item *tcp_ep_hash_find(struct tcp_eventpoll *eventpoll, struct socket *sock);
 //static int tcp_ep_hash_remove(struct tcp_eventpoll *eventpoll, struct socket *);
 
 static inline void tcp_ep_rb_initnode(struct rb_node *n);
@@ -138,6 +141,11 @@ static void tcp_ep_item_free(struct tcp_ep_item *item)
 		kmem_cache_free(tcp_ep_item_cachep, item);
 }
 
+static inline void get_ep_item(struct tcp_ep_item *item)
+{
+	atomic_inc(&item->usecnt);
+}
+
 static void inline tcp_epoll_free(struct tcp_eventpoll *eventpoll)
 {
 	if (eventpoll) {
@@ -190,9 +198,27 @@ insert_fail:
 	return err;
 }
 
+/* Remove the item from all relevant structs etc */
 void tcp_epoll_remove(struct tcp_eventpoll *eventpoll, struct socket *sock)
 {
-	/* Remove the item from all relevant structs etc */
+	struct tcp_ep_item *item;
+	
+	/* First find the item for the struct in our RB Tree */
+	item = tcp_ep_hash_find(sock);
+
+	/* If we didn't find it... */
+	if (!item)
+		return;
+	
+	/* Now remove ourseleves from any poll stuff */
+	/* How do I stop race where callback attempts to get lock while
+	 * I am killing the item? We use memory management on the item, when
+	 * callback starts it "grabs" the item (increasing its ref count),
+	 * that way it wont die while its still using it! */
+
+	/* Delete the item from the tree */
+
+	/* Delete the item */
 }
 
 int tcp_epoll_setflags(struct tcp_eventpoll *eventpoll, struct socket *sock, unsigned int flags)
@@ -256,6 +282,7 @@ static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *k
 	struct tcp_ep_item *item;
 
 	item = tcp_ep_item_from_wait(curr);
+	get_ep_item(item);
 	mask = tcp_epoll_check_events(item);
 
 	if (mask) {
@@ -283,7 +310,7 @@ static inline void add_item_to_readylist(struct tcp_ep_item *item)
 
 /* RBTree Methods */
 /*---------------------------------------------------------------------------*/
-
+/* All of the blow methods work on the assumption that the caller has done the correct locking */
 static int tcp_ep_hash_insert(struct tcp_eventpoll *eventpoll, struct tcp_ep_item *item)
 {
 	int cmp;
@@ -317,11 +344,36 @@ static inline void tcp_ep_rb_removenode(struct rb_node *n, struct rb_root *r)
 	rb_set_parent(n, n);
 }
 
+static struct tcp_ep_item *tcp_ep_hash_find(struct tcp_eventpoll *eventpoll, struct socket *sock)
+{
+	struct rb_node *rbn;
+	struct tcp_ep_item *item = NULL;
+	int cmp;
+	int found = 0;
+
+	/* Start at root, traverse tree */
+	rbn = &eventpoll->hash_root.rb_node;
+	while (rbn) {
+		item = rb_entry(rbn, struct tcp_ep_item, hash_node);
+		cmp = tcp_cmp_sock(sock, item->sock);
+		if (cmp == 0) {
+			found = 1;
+			break;
+		}
+		rbn = cmp < 0 ? rbn->rb_left : rbn->rb_right;
+	}
+
+	/* If not found return null */
+	return found ? item : NULL;
+}
+
 static inline int tcp_cmp_sock(struct socket *leftsock, struct socket *rightsock)
 {
 	struct inet_sock *leftsk = inet_sk(leftsock->sk);
 	struct inet_sock *rightsk = inet_sk(rightsock->sk);
 
+	/* This compares both the daddr and dport, if both match
+	 * the sockets are the same */
 	__u32 diff = leftsk->daddr - rightsk->daddr;
 
 	if(!diff)
