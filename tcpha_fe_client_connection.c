@@ -118,7 +118,6 @@ int init_connections(struct herder_list *herders)
 	int cpu;
 	int err;
 	struct tcpha_fe_herder *herder;
-	herder_list_init(herders);
 
 	atomic_inc(&mem_cache_use);
 	/* Create our memory caches if they don't already exist */
@@ -192,7 +191,7 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 																  GFP_KERNEL);
 
 	connection->csock = sock;
-	INIT_LIST_HEAD(&(connection->list));
+	INIT_LIST_HEAD(&connection->list);
 
 	/* search for least loaded pool */
 	read_lock(&herders->lock);
@@ -209,11 +208,11 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 	read_unlock(&herders->lock);
 
 	/* Now we lock the pool, add the connection
-	 * to the poll in and make sure to increase
+	 * to the pool in and make sure to increase
 	 * our pool count! */
 	if (least_loaded) {
 		write_lock(&least_loaded->pool_lock);
-		list_add_tail(&herders->list, &least_loaded->conn_pool);
+		list_add(&connection->list, &least_loaded->conn_pool);
 		atomic_inc(&least_loaded->pool_size);
 		write_unlock(&least_loaded->pool_lock);
 		printk(KERN_ALERT "Connection Created on Pool: %u\n", least_loaded->cpu);
