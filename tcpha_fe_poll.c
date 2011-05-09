@@ -250,9 +250,36 @@ int tcp_epoll_setflags(struct tcp_eventpoll *eventpoll, struct socket *sock, uns
 }
 
 /* Collects our events */
-int tcp_epoll_wait(struct tcp_eventpoll *eventpoll, struct socket *sockets[], int maxevents, int timeout)
+int tcp_epoll_wait(struct tcp_eventpoll *ep, struct socket *socks[], int maxevents)
 {
-	return -1;
+	struct tcp_ep_item *item, *next;
+	unsigned long flags;
+	int events = 0;
+	struct list_head *rdlist = &ep->ready_list;
+
+	while (list_empty(&ep->ready_list)) {
+		/* Wait till we have items in the ready_list */
+		wait_event_interruptible(ep->poll_wait, (!list_empty(rdlist)) );
+		printk(KERN_ALERT "Woke! \n");
+	}
+
+	printk(KERN_ALERT "Items in ready list\n");
+	
+	/* Now lock the ready list and grab all the items in it and remove them. */
+	write_lock_irqsave(&ep->list_lock, flags);
+	list_for_each_entry_safe(item, next, &ep->ready_list, rd_list) {
+		if (events < maxevents) {
+			socks[events] = item->sock;
+			list_del_init(&item->rd_list);
+			events++;
+		} else {
+			break;
+		}
+	}
+	write_unlock_irqrestore(&ep->list_lock, flags);
+
+	printk(KERN_ALERT "Items returned\n");
+	return 0;
 }
 
 /* Private Other Methods */
@@ -271,14 +298,18 @@ static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *k
 {
 	unsigned int mask = 0;
 	struct tcp_ep_item *item;
+	unsigned long flags;
 
 	item = tcp_ep_item_from_wait(curr);
+	write_lock_irqsave(&item->lock, flags);
 	mask = tcp_epoll_check_events(item);
 
 	if (mask) {
 		add_item_to_readylist(item);
 		printk(KERN_ALERT "Should Wake");
+		wake_up_all(&item->eventpoll->poll_wait);
 	}
+	write_unlock_irqrestore(&item->lock, flags);
 
 	return 1;
 }
@@ -293,6 +324,9 @@ static inline void add_item_to_readylist(struct tcp_ep_item *item)
 {
 	unsigned long flags;
 	struct tcp_eventpoll *ep = item->eventpoll;
+	/* Trixy, if we are already in the read list nothing to do */
+	if (!list_empty(&item->rd_list))
+		return;
 	/* in demand, hold for as short a time as  possible */
 	write_lock_irqsave(&ep->list_lock, flags);
 	list_add(&item->rd_list, &ep->ready_list);

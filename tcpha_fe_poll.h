@@ -59,6 +59,6 @@ extern void tcp_epoll_remove(struct tcp_eventpoll *eventpoll, struct socket *soc
 extern int tcp_epoll_setflags(struct tcp_eventpoll *eventpoll, struct socket *sock, unsigned int flags);
 
 /* Polling the epoll */
-extern int tcp_epoll_wait(struct tcp_eventpoll *eventpoll, struct socket *sockets[], int maxevents, int timeout);
+extern int tcp_epoll_wait(struct tcp_eventpoll *eventpoll, struct socket *sockets[], int maxevents);
 
 #endif
