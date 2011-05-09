@@ -111,10 +111,8 @@ void tcp_epoll_destroy(struct tcp_eventpoll *ep)
 {
 	struct rb_node *node;
 	/* Cleanup epoll items in the hash */
-	write_lock(&ep->lock);
 	for (node = rb_first(&ep->hash_root); node; node = rb_next(node))
-		tcp_ep_item_destroy(rb_entry(node, struct tcp_ep_item, hash_node)); 
-	write_unlock(&ep->lock);
+		tcp_ep_item_destroy(rb_entry(node, struct tcp_ep_item, hash_node)); ;
 
 	tcp_epoll_free(ep);
 	/* Destroy for the last user */
