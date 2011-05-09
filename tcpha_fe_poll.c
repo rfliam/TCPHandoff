@@ -265,7 +265,7 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct socket *socks[], int maxeven
 	printk(KERN_ALERT "Woke! \n");
 
 	/* If something else woke us up... */
-	if (test_bit(TCP_EP_DATA_READY, &ep->data_flags))
+	if (!test_bit(TCP_EP_DATA_READY, &ep->data_flags))
 		return 0;
 
 	printk(KERN_ALERT "Items in ready list\n");
