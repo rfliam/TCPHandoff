@@ -259,7 +259,7 @@ static void destroy_connection_herders(struct herder_list *herders)
 		/* We need to remove the epoll stuff before killing the connection
 		 * other wise we will end up with bad memory access on the socket */
 		printk(KERN_ALERT "Destroying Herder\n");
-		herder_destroy(herder);
+		//herder_destroy(herder);
 	}
 }
 
