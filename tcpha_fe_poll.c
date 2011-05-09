@@ -25,7 +25,7 @@ struct tcp_ep_item {
 	struct rb_node hash_node;
 	
 	/* Used to tie this into the ready list */
-	struct list_head rd_list_link;
+	struct list_head rd_list;
 
 	/* Struct describing the events we are interested in */
 	unsigned int event_flags;
@@ -141,7 +141,7 @@ static int tcp_ep_item_alloc(struct tcp_ep_item **item)
 
 	rwlock_init(&epi->lock);
 	tcp_ep_rb_initnode(&epi->hash_node);
-	INIT_LIST_HEAD(&epi->rd_list_link);
+	INIT_LIST_HEAD(&epi->rd_list);
 	epi->event_flags = 0;
 	*item = epi;
 	return 0;
@@ -150,7 +150,10 @@ static int tcp_ep_item_alloc(struct tcp_ep_item **item)
 static void tcp_ep_item_destroy(struct tcp_ep_item *item)
 {
 	struct tcp_eventpoll *ep = item->eventpoll;
-	int flags;
+	unsigned long flags;
+	/* Delete the item from the hash and readylist */
+	write_lock(&ep->lock);
+
 	/* Now remove ourseleves from any poll stuff */
 	/* We let go of the lock quickly since no one else should now cause
 	 * concurrent modification to the item */
@@ -158,8 +161,6 @@ static void tcp_ep_item_destroy(struct tcp_ep_item *item)
 	remove_wait_queue(item->whead, &item->wait);
 	write_unlock_irqrestore(&item->lock, flags);
 	
-	/* Delete the item from the hash and readylist */
-	write_lock(&ep->lock);
 	tcp_ep_rb_removenode(&item->hash_node, &ep->hash_root);
 	write_unlock(&ep->lock);
 
@@ -182,6 +183,7 @@ int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsig
 {
 	int err;
 	unsigned int mask;
+	unsigned long irqflags;
 	struct tcp_ep_item *item = NULL;
 
 	/* Allocate our item */
@@ -199,21 +201,24 @@ int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsig
 	init_waitqueue_func_entry(&item->wait, tcp_epoll_wakeup);
 	item->whead = sock->sk->sk_sleep;
 
-	/* Add it to the hash*/
-	write_lock(&eventpoll->lock);
-	err = tcp_ep_hash_insert(item);
-	write_unlock(&eventpoll->lock);
-	if (err)
-		goto insert_fail;
-
 	/* If its already ready stitch it into the ready list */
 	mask = tcp_epoll_check_events(item);
 	if (mask)
 		add_item_to_readylist(item); /* Locks for us */
 
-	/* Done last so no contention problems */
-	add_wait_queue(item->whead, &item->wait);
+	/* Add it to the hash*/
+	write_lock(&eventpoll->lock);
+	err = tcp_ep_hash_insert(item);
 
+	/* Hold the lock as short as time as possible! */
+	write_lock_irqsave(&item->lock, irqflags);
+	add_wait_queue(item->whead, &item->wait);
+	write_unlock_irqrestore(&item->lock, irqflags);
+	write_unlock(&eventpoll->lock);
+
+	if (err)
+		goto insert_fail;
+	
 	return 0;
 
 	/* May occur if the ep goes away while we are trying to insert
@@ -244,6 +249,7 @@ int tcp_epoll_setflags(struct tcp_eventpoll *eventpoll, struct socket *sock, uns
 	return -1;
 }
 
+/* Collects our events */
 int tcp_epoll_wait(struct tcp_eventpoll *eventpoll, struct socket *sockets[], int maxevents, int timeout)
 {
 	return -1;
@@ -270,6 +276,7 @@ static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *k
 	mask = tcp_epoll_check_events(item);
 
 	if (mask) {
+		add_item_to_readylist(item);
 		printk(KERN_ALERT "Should Wake");
 	}
 
@@ -284,21 +291,21 @@ static inline struct tcp_ep_item *tcp_ep_item_from_wait(wait_queue_t *p)
 /* Item must be properly locked if necessary, rddlist will be lock by method */
 static inline void add_item_to_readylist(struct tcp_ep_item *item)
 {
-	int flags;
+	unsigned long flags;
 	struct tcp_eventpoll *ep = item->eventpoll;
 	/* in demand, hold for as short a time as  possible */
 	write_lock_irqsave(&ep->list_lock, flags);
-	list_add_tail(&item->rd_list_link, &ep->ready_list);
+	list_add(&item->rd_list, &ep->ready_list);
 	write_unlock_irqrestore(&ep->list_lock, flags);
 }
 
 static inline void remove_item_from_readylist(struct tcp_ep_item *item)
 {
-	int flags;
+	unsigned long flags;
 	struct tcp_eventpoll *ep = item->eventpoll;
 	/* in demand, hold for as short a time as  possible */
 	write_lock_irqsave(&ep->list_lock, flags);
-	list_del(&item->rd_list_link);
+	list_del_init(&item->rd_list);
 	write_unlock_irqrestore(&ep->list_lock, flags);
 }
 /* RBTree Methods */
