@@ -12,6 +12,8 @@
 struct kmem_cache *tcp_ep_item_cachep = NULL;
 atomic_t item_cache_use = ATOMIC_INIT(0);
 
+#define TCP_EP_DATA_READY (1<<0)
+
 /* Every socket we are epolling gets one of these linked in to the hash */
 struct tcp_ep_item {
 	/* Structure Lock, should be got with an IRQ lock
@@ -84,7 +86,7 @@ int tcp_epoll_init(struct tcp_eventpoll **eventpoll)
 	rwlock_init(&ep->lock);
 	rwlock_init(&ep->list_lock);
 	ep->hash_root = RB_ROOT;
-	atomic_set(&ep->data_ready, 0);
+	clear_bit(TCP_EP_DATA_READY, &ep->data_flags);
 
 	/* Guard against multiple initilization, make it for the first user */
 	if (atomic_inc_return(&item_cache_use) == 1) {
@@ -256,15 +258,14 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct socket *socks[], int maxeven
 	struct tcp_ep_item *item, *next;
 	unsigned long flags;
 	int events = 0;
-	struct list_head *rdlist = &ep->ready_list;
 
 	/* Wait till we have items in the ready_list (or we should quit) */
 	printk(KERN_ALERT "Sleeping...zzzz\n");
-	wait_event_interruptible(ep->poll_wait, (atomic_read(&ep->data_ready) != 0) );
+	wait_event_interruptible(ep->poll_wait, (test_bit(TCP_EP_DATA_READY, &ep->data_flags)) );
 	printk(KERN_ALERT "Woke! \n");
 
 	/* If something else woke us up... */
-	if (atomic_read(&ep->data_ready) == 0)
+	if (test_bit(TCP_EP_DATA_READY, &ep->data_flags))
 		return 0;
 
 	printk(KERN_ALERT "Items in ready list\n");
@@ -280,6 +281,7 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct socket *socks[], int maxeven
 			break;
 		}
 	}
+	clear_bit(TCP_EP_DATA_READY, &ep->data_flags);
 	write_unlock_irqrestore(&ep->list_lock, flags);
 
 	printk(KERN_ALERT "Items returned\n");
@@ -334,7 +336,7 @@ static inline void add_item_to_readylist(struct tcp_ep_item *item)
 	/* in demand, hold for as short a time as  possible */
 	write_lock_irqsave(&ep->list_lock, flags);
 	list_add(&item->rd_list, &ep->ready_list);
-	atomic_inc(&ep->data_ready);
+	set_bit(TCP_EP_DATA_READY, &ep->data_flags);
 	write_unlock_irqrestore(&ep->list_lock, flags);
 }
 

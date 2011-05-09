@@ -48,7 +48,7 @@ struct tcp_eventpoll {
 	/* RB-Tree used as hash table to store monitore socket structs */
 	struct rb_root hash_root;
 
-	atomic_t data_ready;
+	volatile unsigned long data_flags;
 };
 
 /* Epoll setup and destroy */
