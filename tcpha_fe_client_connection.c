@@ -292,9 +292,9 @@ static int tcpha_fe_herder_run(void *data)
 	set_current_state(TASK_INTERRUPTIBLE);
 	while (!kthread_should_stop()) {
 		err = tcp_epoll_wait(herder->eventpoll, socks, maxevents);
+		set_current_state(TASK_INTERRUPTIBLE);
 		if (err)
 			continue;
-		set_current_state(TASK_INTERRUPTIBLE);
 	}
 	set_current_state(TASK_RUNNING);
 

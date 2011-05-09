@@ -84,6 +84,7 @@ int tcp_epoll_init(struct tcp_eventpoll **eventpoll)
 	rwlock_init(&ep->lock);
 	rwlock_init(&ep->list_lock);
 	ep->hash_root = RB_ROOT;
+	atomic_set(&ep->data_ready, 0);
 
 	/* Guard against multiple initilization, make it for the first user */
 	if (atomic_inc_return(&item_cache_use) == 1) {
@@ -257,12 +258,14 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct socket *socks[], int maxeven
 	int events = 0;
 	struct list_head *rdlist = &ep->ready_list;
 
-	while (list_empty(&ep->ready_list)) {
-		/* Wait till we have items in the ready_list */
-		printk(KERN_ALERT "Sleeping...zzzz\n");
-		wait_event_interruptible(ep->poll_wait, (!list_empty(rdlist)) );
-		printk(KERN_ALERT "Woke! \n");
-	}
+	/* Wait till we have items in the ready_list (or we should quit) */
+	printk(KERN_ALERT "Sleeping...zzzz\n");
+	wait_event_interruptible(ep->poll_wait, (atomic_read(&ep->data_ready) != 0) );
+	printk(KERN_ALERT "Woke! \n");
+
+	/* If something else woke us up... */
+	if (atomic_read(&ep->data_ready) == 0)
+		return 0;
 
 	printk(KERN_ALERT "Items in ready list\n");
 	
@@ -280,7 +283,7 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct socket *socks[], int maxeven
 	write_unlock_irqrestore(&ep->list_lock, flags);
 
 	printk(KERN_ALERT "Items returned\n");
-	return 0;
+	return events;
 }
 
 /* Private Other Methods */
@@ -331,6 +334,7 @@ static inline void add_item_to_readylist(struct tcp_ep_item *item)
 	/* in demand, hold for as short a time as  possible */
 	write_lock_irqsave(&ep->list_lock, flags);
 	list_add(&item->rd_list, &ep->ready_list);
+	atomic_inc(&ep->data_ready);
 	write_unlock_irqrestore(&ep->list_lock, flags);
 }
 
