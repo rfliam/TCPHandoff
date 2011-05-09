@@ -259,6 +259,7 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct socket *socks[], int maxeven
 
 	while (list_empty(&ep->ready_list)) {
 		/* Wait till we have items in the ready_list */
+		printk(KERN_ALERT "Sleeping...zzzz\n");
 		wait_event_interruptible(ep->poll_wait, (!list_empty(rdlist)) );
 		printk(KERN_ALERT "Woke! \n");
 	}

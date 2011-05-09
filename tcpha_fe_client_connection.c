@@ -283,11 +283,17 @@ int destroy_connections(struct herder_list *herders)
 static int tcpha_fe_herder_run(void *data)
 {
 	struct tcpha_fe_herder *herder = (struct tcpha_fe_herder*)data;
+	int maxevents = 1024;
+	struct socket *socks[maxevents];
+	int err;
+
 	printk(KERN_ALERT "Running Herder %u\n", herder->cpu);
 
 	set_current_state(TASK_INTERRUPTIBLE);
 	while (!kthread_should_stop()) {
-		schedule();
+		err = tcp_epoll_wait(herder->eventpoll, socks, maxevents);
+		if (err)
+			continue;
 		set_current_state(TASK_INTERRUPTIBLE);
 	}
 	set_current_state(TASK_RUNNING);
