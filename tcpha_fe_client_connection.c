@@ -285,7 +285,7 @@ static int tcpha_fe_herder_run(void *data)
 	struct tcpha_fe_herder *herder = (struct tcpha_fe_herder*)data;
 	int maxevents = 1024;
 	struct socket *socks[maxevents];
-	int err;
+	int numevents;
 
 	printk(KERN_ALERT "Running Herder %u\n", herder->cpu);
 
@@ -293,8 +293,9 @@ static int tcpha_fe_herder_run(void *data)
 	while (!kthread_should_stop()) {
 		err = tcp_epoll_wait(herder->eventpoll, socks, maxevents);
 		set_current_state(TASK_INTERRUPTIBLE);
-		if (err)
-			continue;
+		if (numevents == 0 && kthread_should_stop()) {
+			break;
+		}
 	}
 	set_current_state(TASK_RUNNING);
 
