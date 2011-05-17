@@ -278,7 +278,6 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conns[], int 
 	/* Wait till we have items in the ready_list (or we should quit) */
 	printk(KERN_ALERT "Sleeping...zzzz\n");
 	wait_event_interruptible(ep->poll_wait, (!list_empty(&ep->ready_list)) );
-	set_current_state(TASK_INTERRUPTIBLE);
 	printk(KERN_ALERT "Woke! \n");
 
 	/* If something else woke us up... */
@@ -313,6 +312,7 @@ static inline unsigned int tcp_epoll_check_events(struct tcp_ep_item *item)
 	/* Nice little trick, by calling poll without a poll table..
 	 * poll returns immediately on tcp sockets (see poll_wait)
 	 * and the file is never used :) */
+	/* TODO: Determine why we always get two wakeups */
 	return item->event_flags & item->sock->ops->poll(NULL, item->sock, NULL);
 }
 
@@ -329,7 +329,10 @@ static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *k
 	if (mask) {
 		add_item_to_readylist(item);
 		printk(KERN_ALERT "Should Wake");
-		wake_up_all(&item->eventpoll->poll_wait);
+		if (item->eventpoll)
+				wake_up_all(&item->eventpoll->poll_wait);
+		else 
+			printk(KERN_ALERT "Not waking, null event");
 	}
 	write_unlock_irqrestore(&item->lock, flags);
 
