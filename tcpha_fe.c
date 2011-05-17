@@ -8,18 +8,23 @@
 #include "tcpha_fe.h"
 #include "tcpha_fe_client_connection.h"
 #include "tcpha_fe_server.h"
+#include "tcpha_fe_connection_processor.h"
 
 static struct task_struct *server_task;
 static struct tcpha_fe_server server;
 static struct herder_list herders;
+static struct workqueue_struct *processor;
 
 /* Module initilization and setup methods */
 /*---------------------------------------------------------------------------*/
 static int tcpha_init(void) {
 	printk(KERN_ALERT "TCPHA Startup\n");
 
+	/* Setup our processors */
+	processor_init(&processor);
+
 	/* Startup the herder threads */
-	init_connections(&herders);
+	init_connections(&herders, processor);
 
 	/* Startup the acceptor thread */
 	server.conf.port = 8080;
@@ -35,6 +40,8 @@ static void tcpha_exit(void) {
 
 	/* Kill the herder threads */
 	destroy_connections(&herders);
+
+	processor_destroy(processor);
 
 	printk(KERN_ALERT "TCPHA Done\n");
 }

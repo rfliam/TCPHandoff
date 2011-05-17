@@ -58,7 +58,7 @@ struct tcpha_fe_herder {
 	struct task_struct *task; /* The task this boy is actually running in */
 };
 
-extern int init_connections(struct herder_list *herders);
+extern int init_connections(struct herder_list *herders, struct workqueue_struct *processors);
 extern int destroy_connections(struct herder_list *herders);
 
 extern int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock);

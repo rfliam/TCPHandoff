@@ -114,7 +114,7 @@ static inline void herder_list_init(struct herder_list *herders)
 /*
  * Herder should be already alloced, but no need to init it (i will do that). 
  */
-int init_connections(struct herder_list *herders)
+int init_connections(struct herder_list *herders, struct workqueue_struct *processors)
 {
 	int cpu;
 	int err;
@@ -148,6 +148,7 @@ int init_connections(struct herder_list *herders)
 		err = herder_init(&herder, cpu);
 		if (err)
 			goto errorHerderAlloc;
+		herder->processor_work = processors;
 	
 		list_add(&herder->herder_list, &herders->list);
 		printk(KERN_ALERT "Adding Herder for CPU: %u\n", cpu);
@@ -289,6 +290,7 @@ static int tcpha_fe_herder_run(void *data)
 	struct tcpha_fe_conn *conns[maxevents];
 	int numevents;
 	int i;
+	int err;
 
 	printk(KERN_ALERT "Running Herder %u\n", herder->cpu);
 
@@ -298,7 +300,9 @@ static int tcpha_fe_herder_run(void *data)
 		set_current_state(TASK_INTERRUPTIBLE);
 
 		for (i = 0; i < numevents; i++) {
-			schedule_work(&conns[i]->processor_work);
+			err = queue_work(herder->processor_work, &conns[i]->processor_work);
+			if (!err)
+				printk(KERN_ALERT "Err adding work for processor");
 		}
 	}
 	__set_current_state(TASK_RUNNING);
