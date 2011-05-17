@@ -31,7 +31,7 @@ struct tcpha_fe_conn {
 	rwlock_t lock;
 	struct socket *csock;	/* socket connected to client */
 	struct list_head list;	/* d-linked list head */
-	struct http_request;
+	struct http_request *request;
 };
 
 struct herder_list {
