@@ -32,6 +32,8 @@ struct tcpha_fe_conn {
 	struct socket *csock;	/* socket connected to client */
 	struct list_head list;	/* d-linked list head */
 	struct http_request *request;
+
+	struct work_struct processor_work;
 };
 
 struct herder_list {

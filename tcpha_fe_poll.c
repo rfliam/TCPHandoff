@@ -88,7 +88,6 @@ int tcp_epoll_init(struct tcp_eventpoll **eventpoll)
 	rwlock_init(&ep->lock);
 	rwlock_init(&ep->list_lock);
 	ep->hash_root = RB_ROOT;
-	clear_bit(TCP_EP_DATA_READY, &ep->data_flags);
 
 	/* Guard against multiple initilization, make it for the first user */
 	if (atomic_inc_return(&item_cache_use) == 1) {
@@ -279,6 +278,7 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conns[], int 
 	/* Wait till we have items in the ready_list (or we should quit) */
 	printk(KERN_ALERT "Sleeping...zzzz\n");
 	wait_event_interruptible(ep->poll_wait, (!list_empty(&ep->ready_list)) );
+	set_current_state(TASK_INTERRUPTIBLE);
 	printk(KERN_ALERT "Woke! \n");
 
 	/* If something else woke us up... */
@@ -298,7 +298,6 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conns[], int 
 			break;
 		}
 	}
-	clear_bit(TCP_EP_DATA_READY, &ep->data_flags);
 	write_unlock_irqrestore(&ep->list_lock, flags);
 
 	printk(KERN_ALERT "Items returned\n");

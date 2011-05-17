@@ -6,6 +6,7 @@
  */
 
 #include "tcpha_fe_client_connection.h"
+#include "tcpha_fe_connection_processor.h"
 #include "tcpha_fe_poll.h"
 #include "tcpha_fe_socket_functions.h"
 
@@ -192,6 +193,7 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 
 	connection->csock = sock;
 	INIT_LIST_HEAD(&connection->list);
+	INIT_WORK(&connection->processor_work, process_connection, connection);
 
 	/* search for least loaded pool */
 	read_lock(&herders->lock);
@@ -286,6 +288,7 @@ static int tcpha_fe_herder_run(void *data)
 	int maxevents = 1024;
 	struct tcpha_fe_conn *conns[maxevents];
 	int numevents;
+	int i;
 
 	printk(KERN_ALERT "Running Herder %u\n", herder->cpu);
 
@@ -293,11 +296,12 @@ static int tcpha_fe_herder_run(void *data)
 	while (!kthread_should_stop()) {
 		numevents = tcp_epoll_wait(herder->eventpoll, conns, maxevents);
 		set_current_state(TASK_INTERRUPTIBLE);
-		if (numevents == 0 && kthread_should_stop()) {
-			break;
+
+		for (i = 0; i < numevents; i++) {
+			schedule_work(&conns[i]->processor_work);
 		}
 	}
-	set_current_state(TASK_RUNNING);
+	__set_current_state(TASK_RUNNING);
 
 	printk(KERN_ALERT "Herder Shutting Down\n");
 
