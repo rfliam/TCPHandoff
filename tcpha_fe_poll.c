@@ -40,6 +40,8 @@ struct tcp_ep_item {
 
 	/* Wait queue head we are linked to */
 	wait_queue_head_t *whead;
+
+	struct tcpha_fe_conn *conn;
 };
 
 /* Private Method Prototypes */
@@ -182,12 +184,13 @@ static inline void tcp_ep_item_free(struct tcp_ep_item *item)
 
 /* Modification and Usage Methods (You can get to these from outside) */
 /*---------------------------------------------------------------------------*/
-int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsigned int flags)
+int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct tcpha_fe_conn *conn, unsigned int flags)
 {
 	int err;
 	unsigned int mask;
 	unsigned long irqflags;
 	struct tcp_ep_item *item = NULL;
+	struct socket *sock = conn->csock;
 
 	/* Allocate our item */
 	err = tcp_ep_item_alloc(&item);
@@ -199,6 +202,7 @@ int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsig
 	item->sock = sock;
 	item->event_flags = flags | POLLERR | POLLHUP;
 	item->eventpoll = eventpoll;
+	item->conn = conn;
 
 	/* And set it up to add itself to the readylist when appropriate */
 	init_waitqueue_func_entry(&item->wait, tcp_epoll_wakeup);
@@ -232,10 +236,11 @@ insert_fail:
 }
 
 /* Remove the item from all relevant structs etc */
-void tcp_epoll_remove(struct tcp_eventpoll *ep, struct socket *sock)
+void tcp_epoll_remove(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conn)
 {
 	struct tcp_ep_item *item;
-	
+	struct socket *sock = conn->csock;
+
 	/* First find the item for the struct in our RB Tree */
 	read_lock(&ep->lock);
 	item = tcp_ep_hash_find(ep, sock);
@@ -246,14 +251,26 @@ void tcp_epoll_remove(struct tcp_eventpoll *ep, struct socket *sock)
 	tcp_ep_item_destroy(item);	
 }
 
-int tcp_epoll_setflags(struct tcp_eventpoll *eventpoll, struct socket *sock, unsigned int flags)
+int tcp_epoll_setflags(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conn, unsigned int flags)
 {
+	unsigned long irqflags;
+	struct tcp_ep_item *item;
+
+	read_lock(&ep->lock);
+	item = tcp_ep_hash_find(ep, conn->csock);
+	read_unlock(&ep->lock);
+	if (!item)
+		return -1;
+
+	write_lock_irqsave(&item->lock, irqflags);
+	item->event_flags = flags;
+	write_unlock_irqrestore(&item->lock, irqflags);
 	/* Find the item, and change its flags */
-	return -1;
+	return 0;
 }
 
 /* Collects our events */
-int tcp_epoll_wait(struct tcp_eventpoll *ep, struct socket *socks[], int maxevents)
+int tcp_epoll_wait(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conns[], int maxevents)
 {
 	struct tcp_ep_item *item, *next;
 	unsigned long flags;
@@ -261,11 +278,11 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct socket *socks[], int maxeven
 
 	/* Wait till we have items in the ready_list (or we should quit) */
 	printk(KERN_ALERT "Sleeping...zzzz\n");
-	wait_event_interruptible(ep->poll_wait, (test_bit(TCP_EP_DATA_READY, &ep->data_flags)) );
+	wait_event_interruptible(ep->poll_wait, (!list_empty(&ep->ready_list)) );
 	printk(KERN_ALERT "Woke! \n");
 
 	/* If something else woke us up... */
-	if (!test_bit(TCP_EP_DATA_READY, &ep->data_flags))
+	if (list_empty(&ep->ready_list))
 		return 0;
 
 	printk(KERN_ALERT "Items in ready list\n");
@@ -274,7 +291,7 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct socket *socks[], int maxeven
 	write_lock_irqsave(&ep->list_lock, flags);
 	list_for_each_entry_safe(item, next, &ep->ready_list, rd_list) {
 		if (events < maxevents) {
-			socks[events] = item->sock;
+			conns[events] = item->conn;
 			list_del_init(&item->rd_list);
 			events++;
 		} else {
@@ -336,7 +353,6 @@ static inline void add_item_to_readylist(struct tcp_ep_item *item)
 	/* in demand, hold for as short a time as  possible */
 	write_lock_irqsave(&ep->list_lock, flags);
 	list_add(&item->rd_list, &ep->ready_list);
-	set_bit(TCP_EP_DATA_READY, &ep->data_flags);
 	write_unlock_irqrestore(&ep->list_lock, flags);
 }
 

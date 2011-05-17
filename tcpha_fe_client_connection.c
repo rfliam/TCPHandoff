@@ -80,7 +80,7 @@ void herder_destroy(struct tcpha_fe_herder *herder)
 	/* Cleanup connection pool */
 	write_lock(&herder->pool_lock);
 	list_for_each_entry_safe(conn, next, &herder->conn_pool, list) {
-		tcp_epoll_remove(herder->eventpoll, conn->csock);
+		tcp_epoll_remove(herder->eventpoll, conn);
 		tcpha_fe_conn_destroy(conn);
 		printk(KERN_ALERT "Connection destroyed on Pool: %u\n", herder->cpu);
     }
@@ -219,7 +219,7 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 	}
 
 	/* And now add it to our epoll interface */
-	tcp_epoll_insert(least_loaded->eventpoll, connection->csock, POLLIN);
+	tcp_epoll_insert(least_loaded->eventpoll, connection, POLLIN);
 
 	return 0;
 }
@@ -284,14 +284,14 @@ static int tcpha_fe_herder_run(void *data)
 {
 	struct tcpha_fe_herder *herder = (struct tcpha_fe_herder*)data;
 	int maxevents = 1024;
-	struct socket *socks[maxevents];
+	struct tcpha_fe_conn *conns[maxevents];
 	int numevents;
 
 	printk(KERN_ALERT "Running Herder %u\n", herder->cpu);
 
 	set_current_state(TASK_INTERRUPTIBLE);
 	while (!kthread_should_stop()) {
-		err = tcp_epoll_wait(herder->eventpoll, socks, maxevents);
+		numevents = tcp_epoll_wait(herder->eventpoll, conns, maxevents);
 		set_current_state(TASK_INTERRUPTIBLE);
 		if (numevents == 0 && kthread_should_stop()) {
 			break;

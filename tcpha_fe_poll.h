@@ -28,6 +28,7 @@
 #include <linux/net.h>
 #include <net/inet_sock.h>
 #include <asm/atomic.h>
+#include  "tcpha_fe_client_connection.h"
 
 /* The primary structure representing an epoll item */
 struct tcp_eventpoll {
@@ -56,11 +57,11 @@ extern int tcp_epoll_init(struct tcp_eventpoll **eventpoll);
 extern void tcp_epoll_destroy(struct tcp_eventpoll *eventpoll);
 
 /* Methods to add/remove/modify sockets */
-extern int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct socket *sock, unsigned int flags);
-extern void tcp_epoll_remove(struct tcp_eventpoll *eventpoll, struct socket *sock);
-extern int tcp_epoll_setflags(struct tcp_eventpoll *eventpoll, struct socket *sock, unsigned int flags);
+extern int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct tcpha_fe_conn *conn, unsigned int flags);
+extern void tcp_epoll_remove(struct tcp_eventpoll *eventpoll, struct tcpha_fe_conn *conn);
+extern int tcp_epoll_setflags(struct tcp_eventpoll *eventpoll, struct tcpha_fe_conn *conn, unsigned int flags);
 
 /* Polling the epoll */
-extern int tcp_epoll_wait(struct tcp_eventpoll *eventpoll, struct socket *sockets[], int maxevents);
+extern int tcp_epoll_wait(struct tcp_eventpoll *eventpoll, struct tcpha_fe_conn *conns[], int maxevents);
 
 #endif
