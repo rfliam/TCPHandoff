@@ -12,8 +12,6 @@
 struct kmem_cache *tcp_ep_item_cachep = NULL;
 atomic_t item_cache_use = ATOMIC_INIT(0);
 
-#define TCP_EP_DATA_READY (1<<0)
-
 /* Every socket we are epolling gets one of these linked in to the hash */
 struct tcp_ep_item {
 	/* Structure Lock, should be got with an IRQ lock
@@ -29,8 +27,11 @@ struct tcp_ep_item {
 	/* Used to tie this into the ready list */
 	struct list_head rd_list;
 
-	/* Struct describing the events we are interested in */
+	/* Int  describing the events we are interested in */
 	unsigned int event_flags;
+
+	/* The events that have occured on this socket */
+	unsigned int events;
 	
 	/* The eventpoll this item is tied too */
 	struct tcp_eventpoll *eventpoll;
@@ -147,6 +148,7 @@ static int tcp_ep_item_alloc(struct tcp_ep_item **item)
 	tcp_ep_rb_initnode(&epi->hash_node);
 	INIT_LIST_HEAD(&epi->rd_list);
 	epi->event_flags = 0;
+	epi->events = 0;
 	*item = epi;
 	return 0;
 }
@@ -287,10 +289,13 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conns[], int 
 	printk(KERN_ALERT "Items in ready list\n");
 	
 	/* Now lock the ready list and grab all the items in it and remove them. */
+	/* We disable IRQ's so we don't need to worry about modification of the items under us */
 	write_lock_irqsave(&ep->list_lock, flags);
 	list_for_each_entry_safe(item, next, &ep->ready_list, rd_list) {
 		if (events < maxevents) {
 			conns[events] = item->conn;
+			conns[events]->events = item->events;
+			item->events = 0;
 			list_del_init(&item->rd_list);
 			events++;
 		} else {
@@ -323,11 +328,13 @@ static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *k
 	unsigned long flags;
 
 	item = tcp_ep_item_from_wait(curr);
+
 	write_lock_irqsave(&item->lock, flags);
 	mask = tcp_epoll_check_events(item);
 
 	if (mask) {
 		add_item_to_readylist(item);
+		item->events |= mask;
 		printk(KERN_ALERT "Should Wake");
 		if (item->eventpoll)
 				wake_up_all(&item->eventpoll->poll_wait);

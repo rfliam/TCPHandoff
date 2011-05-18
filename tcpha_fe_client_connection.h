@@ -30,11 +30,10 @@ struct http_request;
 /* TODO: This needs to go in a seperate header file, its used infar to many places */
 struct tcpha_fe_conn {
 	rwlock_t lock;
+	unsigned int events;
 	struct socket *csock;	/* socket connected to client */
 	struct list_head list;	/* d-linked list head */
 	struct http_request request;
-
-	struct work_struct processor_work;
 };
 
 struct herder_list {

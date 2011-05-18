@@ -194,7 +194,6 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 
 	connection->csock = sock;
 	INIT_LIST_HEAD(&connection->list);
-	INIT_WORK(&connection->processor_work, process_connection, connection);
 
 	/* search for least loaded pool */
 	read_lock(&herders->lock);
@@ -291,6 +290,7 @@ static int tcpha_fe_herder_run(void *data)
 	int numevents;
 	int i;
 	int err;
+	struct event_process *ep;
 
 	printk(KERN_ALERT "Running Herder %u\n", herder->cpu);
 
@@ -298,9 +298,17 @@ static int tcpha_fe_herder_run(void *data)
 	while (!kthread_should_stop()) {
 		numevents = tcp_epoll_wait(herder->eventpoll, conns, maxevents);
 		set_current_state(TASK_INTERRUPTIBLE);
-
+		
 		for (i = 0; i < numevents; i++) {
-			err = queue_work(herder->processor_work, &conns[i]->processor_work);
+			event_process_alloc(&ep);
+			/* Copy the gathered events and clear them */
+			ep->conn = conns[i];
+			ep->events = conns[i]->events;
+			conns[i]->events = 0;
+
+			/* Queue up someone to deal with those events */
+			INIT_WORK(&ep->work, process_connection, ep);
+			err = queue_work(herder->processor_work, &ep->work);
 			if (!err)
 				printk(KERN_ALERT "Err adding work for processor");
 		}
