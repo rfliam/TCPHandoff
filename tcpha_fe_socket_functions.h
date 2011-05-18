@@ -2,7 +2,8 @@
 #define TCPHA_FE_CLIENT_CONNECTION_H_
 
 #include <linux/version.h>
-
+#include <net/socket.h>
+#include <linux/net.h>
 /* Functions here where added to later versions of the kernel
  * and are only used/defined if need be */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,2)

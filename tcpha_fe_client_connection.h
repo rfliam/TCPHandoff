@@ -27,11 +27,12 @@ struct tcp_eventpoll; /* Pre dec so I can use it here */
 struct http_request;
 
 /* A connection with client */
+/* TODO: This needs to go in a seperate header file, its used infar to many places */
 struct tcpha_fe_conn {
 	rwlock_t lock;
 	struct socket *csock;	/* socket connected to client */
 	struct list_head list;	/* d-linked list head */
-	struct http_request *request;
+	struct http_request request;
 
 	struct work_struct processor_work;
 };
