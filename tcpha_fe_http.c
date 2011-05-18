@@ -1,4 +1,5 @@
 #include "tcpha_fe_http.h"
+#include <linux/slab.h>
 
 struct kmem_cache *header_cache_ptr;
 
@@ -20,4 +21,4 @@ void http_header_free(struct http_header *hdr)
 void http_destroy(void)
 {
 	kmem_cache_destroy(header_cache_ptr);
-]
+}

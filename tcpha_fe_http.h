@@ -17,7 +17,7 @@ struct http_header {
 	char *method;
 	char *request_uri;
 	char *http_version;
-}
+};
 
 
 void http_init(void);
@@ -25,4 +25,4 @@ void http_destroy(void);
 /* Use this method to get a header to work with */
 struct http_header *http_header_alloc(void);
 void http_header_free(struct http_header *hdr);
-
+#endif

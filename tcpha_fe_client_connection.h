@@ -17,7 +17,7 @@
 #include <linux/sched.h>
 #include <linux/workqueue.h>
 #include <linux/kthread.h>
-
+#include "tcpha_fe_http.h"
 #define MAX_INT 0x7ffffff
 #define TCPHA_EPOLL_SIZE 1024
 
