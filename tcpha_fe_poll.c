@@ -89,6 +89,7 @@ int tcp_epoll_init(struct tcp_eventpoll **eventpoll)
 	rwlock_init(&ep->lock);
 	rwlock_init(&ep->list_lock);
 	ep->hash_root = RB_ROOT;
+	clear_bit(0, &ep->should_wake);
 
 	/* Guard against multiple initilization, make it for the first user */
 	if (atomic_inc_return(&item_cache_use) == 1) {
@@ -278,9 +279,17 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conns[], int 
 	int events = 0;
 
 	/* Wait till we have items in the ready_list (or we should quit) */
-	printk(KERN_ALERT "Sleeping...zzzz\n");
-	wait_event_interruptible(ep->poll_wait, (!list_empty(&ep->ready_list)) );
-	printk(KERN_ALERT "Woke! \n");
+	/* FIXME: We need a different sleep event so that the kthread can
+	 * wake this and kill it too, wait event interruptible will put
+	 * the process back to sleep if the condition is not true, period. 
+	 * Likely Fix: Atomic "should_wake" flag */
+	if (list_empty(&ep->ready_list)) {
+		printk(KERN_ALERT "Sleeping...zzzz\n");
+		/* Only sleeps if the second arguments evaluates to _false_ */
+		wait_event_interruptible(ep->poll_wait, test_bit(0, &ep->should_wake) );
+		clear_bit(0, &ep->should_wake);
+		printk(KERN_ALERT "Woke! \n");
+	}
 
 	/* If something else woke us up... */
 	if (list_empty(&ep->ready_list))
@@ -327,19 +336,24 @@ static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *k
 	unsigned long flags;
 
 	item = tcp_ep_item_from_wait(curr);
-	printk(KERN_ALERT "Epoll Wakeup Called\n");
+	printk(KERN_ALERT "Epoll Wakeup Called\n Locking\n");
 	write_lock_irqsave(&item->lock, flags);
 	mask = tcp_epoll_check_events(item);
 
 	if (mask) {
+		printk(KERN_ALERT " Mask Matches\n");
 		add_item_to_readylist(item);
 		item->events |= mask;
-		printk(KERN_ALERT "Should Wake");
-		if (item->eventpoll)
-				wake_up_all(&item->eventpoll->poll_wait);
+		if (item && item->eventpoll) {
+			printk(KERN_ALERT "  Setting Bit\n");
+			set_bit(0, &item->eventpoll->should_wake);
+			printk(KERN_ALERT "  Trying To Wake\n");
+			wake_up_all(&item->eventpoll->poll_wait);
+		}
 		else 
-			printk(KERN_ALERT "Not waking, null event");
+			printk(KERN_ALERT " Not waking, null event\n");
 	}
+	printk(KERN_ALERT " Unlocking\n");
 	write_unlock_irqrestore(&item->lock, flags);
 
 	return 1;

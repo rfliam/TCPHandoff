@@ -258,6 +258,9 @@ static void destroy_connection_herders(struct herder_list *herders)
 			continue;
 		}
 		printk(KERN_ALERT "Stoping Herder %u\n", herder->cpu);
+		/* Tell the epoll to go ahead and wake */
+		set_bit(0, &herder->eventpoll->should_wake);
+		/* Trigger the wake with kthread stop */
 		err = kthread_stop(herder->task);
 		if (err)
 			printk(KERN_ALERT "Error Killing Proc\n");
