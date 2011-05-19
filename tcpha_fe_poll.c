@@ -317,7 +317,6 @@ static inline unsigned int tcp_epoll_check_events(struct tcp_ep_item *item)
 	/* Nice little trick, by calling poll without a poll table..
 	 * poll returns immediately on tcp sockets (see poll_wait)
 	 * and the file is never used :) */
-	/* TODO: Determine why we always get two wakeups */
 	return item->event_flags & item->sock->ops->poll(NULL, item->sock, NULL);
 }
 
@@ -328,7 +327,7 @@ static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *k
 	unsigned long flags;
 
 	item = tcp_ep_item_from_wait(curr);
-
+	printk(KERN_ALERT "Epoll Wakeup Called\n");
 	write_lock_irqsave(&item->lock, flags);
 	mask = tcp_epoll_check_events(item);
 

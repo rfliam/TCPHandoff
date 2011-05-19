@@ -191,6 +191,7 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 	/* Setup connection */
 	struct tcpha_fe_conn *connection = kmem_cache_alloc(tcpha_fe_conn_cachep,
 																  GFP_KERNEL);
+	struct inet_sock *isk = inet_sk(sock->sk);
 
 	connection->csock = sock;
 	INIT_LIST_HEAD(&connection->list);
@@ -217,7 +218,10 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 		list_add(&connection->list, &least_loaded->conn_pool);
 		atomic_inc(&least_loaded->pool_size);
 		write_unlock(&least_loaded->pool_lock);
-		printk(KERN_ALERT "Connection Created on Pool: %u\n", least_loaded->cpu);
+		printk(KERN_ALERT "Connection Created on Pool: %u\n for: %u.%u.%u.%u:%d", 
+								least_loaded->cpu,
+								NIPQUAD(isk->daddr),
+								isk->dport);
 	}
 
 	/* And now add it to our epoll interface */
@@ -298,22 +302,29 @@ static int tcpha_fe_herder_run(void *data)
 	while (!kthread_should_stop()) {
 		numevents = tcp_epoll_wait(herder->eventpoll, conns, maxevents);
 		set_current_state(TASK_INTERRUPTIBLE);
-		
+		if (!numevents)
+			continue;
+
+		printk(KERN_ALERT "Processing Items\n");
 		for (i = 0; i < numevents; i++) {
 			event_process_alloc(&ep);
+			printk(KERN_ALERT "   Item %d\n", i);
 			/* Copy the gathered events and clear them */
 			ep->conn = conns[i];
 			ep->events = conns[i]->events;
 			conns[i]->events = 0;
 
 			/* Queue up someone to deal with those events */
+			printk(KERN_ALERT "   Adding to workqueue\n");
 			INIT_WORK(&ep->work, process_connection, ep);
 			err = queue_work(herder->processor_work, &ep->work);
 			if (!err)
 				printk(KERN_ALERT "Err adding work for processor");
 		}
+
+		set_current_state(TASK_INTERRUPTIBLE);
 	}
-	__set_current_state(TASK_RUNNING);
+	set_current_state(TASK_RUNNING);
 
 	printk(KERN_ALERT "Herder Shutting Down\n");
 
