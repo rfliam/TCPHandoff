@@ -344,7 +344,7 @@ static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *k
 		printk(KERN_ALERT " Mask Matches\n");
 		add_item_to_readylist(item);
 		item->events |= mask;
-		if (item && item->eventpoll) {
+		if (item && item->eventpoll && waitqueue_active(&item->eventpoll->poll_wait)) {
 			printk(KERN_ALERT "  Setting Bit\n");
 			set_bit(0, &item->eventpoll->should_wake);
 			printk(KERN_ALERT "  Trying To Wake\n");
