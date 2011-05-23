@@ -63,6 +63,7 @@ void process_connection(void * data)
 
 	/* Run throught he events to process */
 	if (events & POLLIN) {
+		printk(KERN_ALERT "Got Message\n");
 
 		/* If we already have data on the connection, make sure to append */
 		if (conn->request.hdr) {

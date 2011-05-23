@@ -195,6 +195,7 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 
 	connection->csock = sock;
 	INIT_LIST_HEAD(&connection->list);
+	connection->request.hdr = NULL;
 
 	/* search for least loaded pool */
 	read_lock(&herders->lock);
