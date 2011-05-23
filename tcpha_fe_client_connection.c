@@ -293,6 +293,7 @@ int destroy_connections(struct herder_list *herders)
 static int tcpha_fe_herder_run(void *data)
 {
 	struct tcpha_fe_herder *herder = (struct tcpha_fe_herder*)data;
+	/* TODO: Move magic number up */
 	int maxevents = 1024;
 	struct tcpha_fe_conn *conns[maxevents];
 	int numevents;

@@ -8,6 +8,9 @@ void http_init(void)
 	header_cache_ptr = kmem_cache_create("tcpha http hdr cache", 
 						sizeof(struct http_header),
 			  0, SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL, NULL);
+
+	if (!header_cache_ptr)
+		printk(KERN_ALERT "Error getting http_header memcache\n");
 }
 
 struct http_header *http_header_alloc(void)
