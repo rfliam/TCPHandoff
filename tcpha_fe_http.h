@@ -1,9 +1,10 @@
 #ifndef _TCPHA_FE_HTTP_H_
 #define _TCPHA_FE_HTTP_H_
 
-/* 8kb, with 1 spot for null terminate */
-#define MAX_HEADER_SIZE 8193
-
+/* 4kb */
+#define MAX_HEADER_SIZE 4096
+/* Leave room for me to add a null */
+#define MAX_INPUT_SIZE 4095
 struct http_request {
 	struct http_header *hdr;
 	int hdrlen;
@@ -11,6 +12,10 @@ struct http_request {
 	int bodylen;
 };
 
+/* Note if performance is an issue we should consider decreasing to 2k 
+ * (still a very large header) and making this "static" in http_request.
+ * Also @2k apiece a server with 128GB of ram could put 66million of these
+ * in memory so v0v */
 struct http_header {
 	char buffer[MAX_HEADER_SIZE];
 	/* These all point to back in to the buffer */

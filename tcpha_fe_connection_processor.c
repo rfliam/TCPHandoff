@@ -1,6 +1,7 @@
 #include "tcpha_fe_connection_processor.h"
 #include "tcpha_fe_client_connection.h"
 #include "tcpha_fe_socket_functions.h"
+#include "tcpha_fe_http.h"
 
 struct kmem_cache *event_process_memcache_ptr;
 
@@ -14,6 +15,8 @@ int processor_init(struct workqueue_struct **processor)
 												sizeof(struct event_process),
 													0, SLAB_HWCACHE_ALIGN | SLAB_PANIC,
 													NULL, NULL);
+
+	http_init();
 	return 0;
 }
 
@@ -22,6 +25,7 @@ void processor_destroy(struct workqueue_struct *processor)
 	flush_workqueue(processor);
 	destroy_workqueue(processor);
 	kmem_cache_destroy(event_process_memcache_ptr);
+	http_destroy();
 }
 
 
@@ -42,7 +46,7 @@ void process_connection(void * data)
 	struct kvec vec;
 	struct msghdr msg;
 	int len;
-	char buffer[1024];
+	int hdrlen;
 	struct event_process *ep = data;
 	struct tcpha_fe_conn *conn = ep->conn;
 	unsigned int events = ep->events;
@@ -50,8 +54,7 @@ void process_connection(void * data)
 
 	msg.msg_control = NULL;
 	msg.msg_controllen = 0;
-	vec.iov_base = &buffer;
-	vec.iov_len = 1024;
+	
 
 	printk(KERN_ALERT "Work done on connection %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
 	/*int kernel_recvmsg(struct socket *sock, struct msghdr *msg, 
@@ -60,17 +63,36 @@ void process_connection(void * data)
 
 	/* Run throught he events to process */
 	if (events & POLLIN) {
-		len = kernel_recvmsg(conn->csock, &msg, &vec, 1, 1024, MSG_DONTWAIT);
-		if (len > 0 && len < 1023) {
-			buffer[len + 1] = '\0';
-			printk(KERN_ALERT "Got String: %s\n", buffer);
+
+		/* If we already have data on the connection, make sure to append */
+		if (conn->request.hdr) {
+			hdrlen = conn->request.hdrlen;
+			vec.iov_base = &conn->request.hdr->buffer[hdrlen];
+			vec.iov_len = MAX_INPUT_SIZE - hdrlen;
+		} else {
+			/* Else setup the new buffer */
+			conn->request.hdr = http_header_alloc();
+			vec.iov_base = &conn->request.hdr->buffer;
+			vec.iov_len = MAX_INPUT_SIZE ; 
+		}
+
+		/* Get the message, don't wait (we will come back if we need too!) */
+		len = kernel_recvmsg(conn->csock, &msg, &vec, 1, MAX_INPUT_SIZE, MSG_DONTWAIT);
+		
+		/* Append the message */
+		if (len > 0) {
+			conn->request.hdr->buffer[len + 1] = '\0';
+			printk(KERN_ALERT "Got String: %s\n", conn->request.hdr->buffer);
 		}
 		if (len == EAGAIN) 
 			printk(KERN_ALERT "EAGAIN Eror\n");
+
+		/* Process the message for handoff if needed */
 	}
 
 	/* Remove the socket from the list */
 	if (events & POLLHUP) {
+		printk(KERN_ALERT "Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
 	}
 
 	/* We are done processing them, free the item we where processing */
