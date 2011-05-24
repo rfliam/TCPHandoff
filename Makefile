@@ -1,5 +1,13 @@
 KERNEL_DIR = /lib/modules/$(shell uname -r)/build
 #KERNEL_DIR = /usr/src/kernels/linux-2.6.18.1/
+remotemake:
+	git push rfliam@10.253.80.90:~/tcpha/
+	ssh rfliam@10.253.80.90 "cd tcpha; make clean && make"
+
+run:
+	sudo /etc/init.d/netconsole restart
+	make install
+
 all:
 	make -C $(KERNEL_DIR) M=$(PWD) modules
 	mkdir -p build/
