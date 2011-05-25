@@ -87,7 +87,7 @@ void process_connection(void * data)
 			/*conn->request.hdr->buffer[len + 1] = '\0';
 			printk(KERN_ALERT "Got String: %s\n", conn->request.hdr->buffer);*/
 			tmp_buffer[len + 1] = '\0';
-			printk(KERN_ALERT "Got string: %s\n", &tmp_buffer);
+			printk(KERN_ALERT "Got string: %s\n", &tmp_buffer[0]);
 		}
 		if (len == EAGAIN) 
 			printk(KERN_ALERT "EAGAIN Eror\n");
