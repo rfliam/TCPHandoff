@@ -67,7 +67,7 @@ void process_connection(void * data)
 	if (events & POLLIN) {
         /* If we already have data on the connection, make sure to append */
 		if (conn->request.hdr) {
-            prinkt(KERN_ALER "Appending to Buffer\n");
+            printk(KERN_ALERT "Appending to Buffer\n");
 			hdrlen = conn->request.hdrlen;
 			vec.iov_base = &conn->request.hdr->buffer[hdrlen];
 			vec.iov_len = MAX_INPUT_SIZE - hdrlen;
