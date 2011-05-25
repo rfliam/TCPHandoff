@@ -177,6 +177,7 @@ errorWorkAlloc:
 }
 
 /* TODO: This code needs error handling */
+/* TODO: We should probably get the socket here! */
 /*
  * Add a socket connection to the herders to be processed.
  * @herders : The list of herders to chose from
@@ -298,7 +299,7 @@ static int tcpha_fe_herder_run(void *data)
 	struct tcpha_fe_conn *conns[maxevents];
 	int numevents;
 	int i;
-	int err;
+	int err = 0;
 	struct event_process *ep;
 
 	printk(KERN_ALERT "Running Herder %u\n", herder->cpu);
@@ -324,7 +325,7 @@ static int tcpha_fe_herder_run(void *data)
 			INIT_WORK(&ep->work, process_connection, ep);
 			err = queue_work(herder->processor_work, &ep->work);
 			if (!err)
-				printk(KERN_ALERT "Err adding work for processor");
+				printk(KERN_ALERT "Err adding work for processor\n");
 		}
 
 		set_current_state(TASK_INTERRUPTIBLE);

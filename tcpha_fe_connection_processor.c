@@ -51,6 +51,7 @@ void process_connection(void * data)
 	struct tcpha_fe_conn *conn = ep->conn;
 	unsigned int events = ep->events;
 	struct inet_sock *sk = inet_sk(conn->csock->sk);
+	char tmp_buffer[MAX_HEADER_SIZE];
 
 	msg.msg_control = NULL;
 	msg.msg_controllen = 0;
@@ -61,19 +62,20 @@ void process_connection(void * data)
                     struct kvec *vec, size_t num,
                     size_t size, int flags);*/
 
+    printk(KERN_ALERT "Event Flags: %d\n", events);
 	/* Run throught he events to process */
 	if (events & POLLIN) {
-		printk(KERN_ALERT "Got Message\n");
-
-		/* If we already have data on the connection, make sure to append */
+        /* If we already have data on the connection, make sure to append */
 		if (conn->request.hdr) {
+            prinkt(KERN_ALER "Appending to Buffer\n");
 			hdrlen = conn->request.hdrlen;
 			vec.iov_base = &conn->request.hdr->buffer[hdrlen];
 			vec.iov_len = MAX_INPUT_SIZE - hdrlen;
 		} else {
 			/* Else setup the new buffer */
-			conn->request.hdr = http_header_alloc();
-			vec.iov_base = &conn->request.hdr->buffer;
+			/* conn->request.hdr = http_header_alloc();
+			 * vec.iov_base = &conn->request.hdr->buffer;*/
+			vec.iov_base = &tmp_buffer;
 			vec.iov_len = MAX_INPUT_SIZE ; 
 		}
 
@@ -82,8 +84,10 @@ void process_connection(void * data)
 		
 		/* Append the message */
 		if (len > 0) {
-			conn->request.hdr->buffer[len + 1] = '\0';
-			printk(KERN_ALERT "Got String: %s\n", conn->request.hdr->buffer);
+			/*conn->request.hdr->buffer[len + 1] = '\0';
+			printk(KERN_ALERT "Got String: %s\n", conn->request.hdr->buffer);*/
+			tmp_buffer[len + 1] = '\0';
+			printk(KERN_ALERT "Got string: %s\n", &tmp_buffer);
 		}
 		if (len == EAGAIN) 
 			printk(KERN_ALERT "EAGAIN Eror\n");
@@ -92,7 +96,7 @@ void process_connection(void * data)
 	}
 
 	/* Remove the socket from the list */
-	if (events & POLLHUP) {
+	if (events & POLLHUP || events & POLLERR) {
 		printk(KERN_ALERT "Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
 	}
 
