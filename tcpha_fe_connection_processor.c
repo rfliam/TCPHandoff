@@ -52,7 +52,7 @@ void process_connection(void * data)
 	unsigned int events = ep->events;
 	struct inet_sock *sk = inet_sk(conn->csock->sk);
 	char tmp_buffer[MAX_HEADER_SIZE];
-
+    char *head = &tmp_buffer[0];
 	msg.msg_control = NULL;
 	msg.msg_controllen = 0;
 	
@@ -87,7 +87,7 @@ void process_connection(void * data)
 			/*conn->request.hdr->buffer[len + 1] = '\0';
 			printk(KERN_ALERT "Got String: %s\n", conn->request.hdr->buffer);*/
 			tmp_buffer[len + 1] = '\0';
-			printk(KERN_ALERT "Got string: %s\n", &tmp_buffer[0]);
+			printk(KERN_ALERT "Got string: %s\n", head);
 		}
 		if (len == EAGAIN) 
 			printk(KERN_ALERT "EAGAIN Eror\n");
