@@ -63,4 +63,6 @@ extern int destroy_connections(struct herder_list *herders);
 
 extern int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock);
 
+extern int tcpha_fe_herder_run(void *herder);
+
 #endif /* TCPHA_FE_CLIENT_CONNECTION_H_ */

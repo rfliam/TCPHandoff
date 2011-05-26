@@ -150,6 +150,7 @@ static int tcp_ep_item_alloc(struct tcp_ep_item **item)
     INIT_LIST_HEAD(&epi->rd_list);
     epi->event_flags = 0;
     epi->events = 0;
+    epi->whead = NULL;
     *item = epi;
     return 0;
 }
@@ -163,10 +164,12 @@ static void tcp_ep_item_destroy(struct tcp_ep_item *item)
 
     /* Now remove ourseleves from any poll stuff */
     /* We let go of the lock quickly since no one else should now cause
-     * concurrent modification to the item */
-    write_lock_irqsave(&item->lock, flags);
-    remove_wait_queue(item->whead, &item->wait);
-    write_unlock_irqrestore(&item->lock, flags);
+     * concurrent modification to the item and we want irqs back on quickly*/
+    if (item && item->whead) {
+        write_lock_irqsave(&item->lock, flags);
+        remove_wait_queue(item->whead, &item->wait);
+        write_unlock_irqrestore(&item->lock, flags);
+    }    
 
     tcp_ep_rb_removenode(&item->hash_node, &ep->hash_root);
     write_unlock(&ep->lock);
@@ -233,6 +236,7 @@ int tcp_epoll_insert(struct tcp_eventpoll *eventpoll, struct tcpha_fe_conn *conn
     /* May occur if the ep goes away while we are trying to insert
      * an item. */
     insert_fail:
+    printk(KERN_ALERT "Error adding item in tcp insert");
     tcp_ep_item_free(item);
     return err;
 }
@@ -272,8 +276,10 @@ int tcp_epoll_setflags(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conn, uns
 }
 
 /* Collects our events */
-int tcp_epoll_wait(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conns[], int maxevents)
+int tcp_epoll_wait(struct tcp_eventpoll *ep, struct tcpha_fe_conn **conns, int maxevents)
 {
+//  schedule();
+//  return 0;
     struct tcp_ep_item *item, *next;
     unsigned long flags;
     int events = 0;
@@ -284,16 +290,16 @@ int tcp_epoll_wait(struct tcp_eventpoll *ep, struct tcpha_fe_conn *conns[], int 
      * the process back to sleep if the condition is not true, period. 
      * Likely Fix: Atomic "should_wake" flag */
     if (list_empty(&ep->ready_list)) {
-        printk(KERN_ALERT "Sleeping...zzzz\n");
+          printk(KERN_ALERT "Sleeping...zzzz\n");
         /* Only sleeps if the second arguments evaluates to _false_ */
-        wait_event_interruptible(ep->poll_wait, test_bit(0, &ep->should_wake) );
-        clear_bit(0, &ep->should_wake);
-        printk(KERN_ALERT "Woke! \n");
+          wait_event_interruptible(ep->poll_wait, test_bit(0, &ep->should_wake) );
+          clear_bit(0, &ep->should_wake);
+          printk(KERN_ALERT "Woke! \n");
     }
 
     /* If something else woke us up... */
     if (list_empty(&ep->ready_list))
-        return 0;
+          return 0;
 
     printk(KERN_ALERT "Items in ready list\n");
 
@@ -347,13 +353,15 @@ static int tcp_epoll_wakeup(wait_queue_t *curr, unsigned mode, int sync, void *k
         if (item && item->eventpoll && waitqueue_active(&item->eventpoll->poll_wait)) {
             printk(KERN_ALERT "  Setting Bit\n");
             set_bit(0, &item->eventpoll->should_wake);
+            printk(KERN_ALERT " Unlocking\n");
+            write_unlock_irqrestore(&item->lock, flags);
             printk(KERN_ALERT "  Trying To Wake\n");
             wake_up_all(&item->eventpoll->poll_wait);
         } else
             printk(KERN_ALERT " Not waking, null event\n");
+            printk(KERN_ALERT " Unlocking\n");
+            write_unlock_irqrestore(&item->lock, flags);
     }
-    printk(KERN_ALERT " Unlocking\n");
-    write_unlock_irqrestore(&item->lock, flags);
 
     return 1;
 }

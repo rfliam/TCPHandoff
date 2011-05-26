@@ -19,10 +19,15 @@ clean:
 
 install:	build/ktcphafe.ko
 	sudo /sbin/insmod build/ktcphafe.ko
-	/sbin/lsmod | less
 
 uninstall:
 	sudo /sbin/rmmod ktcphafe
+
+test:
+	make install
+	make uninstall
+	make test
+	make uninstall
 
 BUILD_DIR := build
 
