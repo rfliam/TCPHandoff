@@ -1,4 +1,4 @@
-/*
+/**
  * tcpha_fe_client_connection.h
  *
  *  Created on: Apr 5, 2011
@@ -61,8 +61,33 @@ struct tcpha_fe_herder {
 extern int init_connections(struct herder_list *herders, struct workqueue_struct *processors);
 extern int destroy_connections(struct herder_list *herders);
 
+/**
+ * Add a socket to be "watched" for a new connection into the 
+ * list of herders. 
+ * 
+ * @author rfliam200 (5/27/2011)
+ * 
+ * @param herders The list of herders which will be watching 
+ * @param sock 
+ * 
+ * @return int If less than 0 there was an err adding to the 
+ *         herders (try again or drop the connection).
+ */
 extern int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock);
 
+
+/**
+ * The main body loop for a herder
+ * 
+ * @author rfliam200 (5/27/2011)
+ * 
+ * @param herder A struct tcpha_fe_herder representing this 
+ * herder, this is responsible for listening and maintaing 
+ * events on the pool of connections. 
+ * 
+ * @return int If this hereder encounetered an error durring its 
+ * run this will return less than 0. 
+ */
 extern int tcpha_fe_herder_run(void *herder);
 
 #endif /* TCPHA_FE_CLIENT_CONNECTION_H_ */

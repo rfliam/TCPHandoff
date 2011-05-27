@@ -34,10 +34,6 @@ int tcpha_fe_server_daemon(void * __service)
 	/* We are go */
 	atomic_set(&server->running, 1);
 	while (!kthread_should_stop()) {
-		if (signal_pending(current)) {
-			/* TODO: Change to correct code */
-			//do_exit(0);
-		}
 		/* List for accepts on the main socket */
 		err = kernel_accept(server->mainsock, &newsock, O_NONBLOCK);
 		if (err < 0) {
