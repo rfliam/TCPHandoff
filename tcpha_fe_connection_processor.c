@@ -2,6 +2,7 @@
 #include "tcpha_fe_client_connection.h"
 #include "tcpha_fe_socket_functions.h"
 #include "tcpha_fe_http.h"
+#include "tcpha_fe_utils.h"
 
 struct kmem_cache *event_process_memcache_ptr;
 
@@ -41,7 +42,7 @@ void event_process_free(struct event_process* ep)
 
 /* External (public) methods */
 /*---------------------------------------------------------------------------*/
-void process_connection(void * data)
+void process_connection(void *data)
 {
     struct kvec vec;
     struct msghdr msg;
@@ -56,12 +57,13 @@ void process_connection(void * data)
 
 
     printk(KERN_ALERT "Work done on connection %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
-    printk(KERN_ALERT "Event Flags: %x\n", events);
+    printk(KERN_ALERT "   Event Flags:\n");
+    printk(KERN_ALERT POLLMASKFMT, POLLMASK(events));
     /* Run throught he events to process */
     if (events & POLLIN) {
         /* If we already have data on the connection, make sure to append */
         if (conn->request.hdr) {
-            printk(KERN_ALERT "Appending to Buffer\n");
+            printk(KERN_ALERT "  Appending to Buffer\n");
             hdrlen = conn->request.hdrlen;
             vec.iov_base = &conn->request.hdr->buffer[hdrlen];
             vec.iov_len = MAX_INPUT_SIZE - hdrlen;
@@ -79,17 +81,17 @@ void process_connection(void * data)
         if (len > 0 && hdrlen < MAX_INPUT_SIZE) {
             conn->request.hdr->buffer[hdrlen + 1] = '\0';
             conn->request.hdrlen = hdrlen;
-            printk(KERN_ALERT "Got String: %s\n", conn->request.hdr->buffer);
+            printk(KERN_ALERT "   Got String: %s\n\n", conn->request.hdr->buffer);
         }
         if (len == EAGAIN)
-            printk(KERN_ALERT "EAGAIN Eror\n");
+            printk(KERN_ALERT "   EAGAIN Eror\n");
 
         /* Process the message for handoff if needed */
     }
 
     /* Remove the socket from the list */
-    if (events & POLLHUP || events & POLLERR) {
-        printk(KERN_ALERT "Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
+    if (events & (POLLHUP | POLLERR | POLLRDHUP)) {
+        printk(KERN_ALERT "   Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
     }
 
     /* We are done processing them, free the item we where processing */
