@@ -242,6 +242,12 @@ static inline void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn)
         sock_release(conn->csock);
     conn->csock = NULL;
     list_del(&conn->list);
+
+    conn->request.hdrlen = 0;
+    if (conn->request.hdr)
+        http_header_free(conn->request.hdr);
+    conn->request.bodylen = 0;
+
     kmem_cache_free(tcpha_fe_conn_cachep, conn);
 }
 
