@@ -5,6 +5,7 @@
 #define MAX_HEADER_SIZE 4096
 /* Leave room for me to add a null */
 #define MAX_INPUT_SIZE 4095
+#define HDR_READ_ERROR -13;
 struct http_request {
 	struct http_header *hdr;
 	int hdrlen;
@@ -19,9 +20,8 @@ struct http_request {
 struct http_header {
 	char buffer[MAX_HEADER_SIZE];
 	/* These all point to back in to the buffer */
-	char *method;
 	char *request_uri;
-	char *http_version;
+    int uri_len;
 };
 
 
@@ -30,4 +30,8 @@ void http_destroy(void);
 /* Use this method to get a header to work with */
 struct http_header *http_header_alloc(void);
 void http_header_free(struct http_header *hdr);
+
+/* Work on a header... */
+struct tcpha_fe_conn;
+int http_process_connection(struct tcpha_fe_conn *conn);
 #endif

@@ -32,7 +32,7 @@ struct tcpha_fe_conn {
 	rwlock_t lock;
 	unsigned int events;
 	struct socket *csock;	/* socket connected to client */
-	struct list_head list;	/* d-linked list head */
+	struct list_head list;	/* d-linked list head */ 
 	struct http_request request;
 };
 
@@ -89,5 +89,6 @@ extern int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock
  * run this will return less than 0. 
  */
 extern int tcpha_fe_herder_run(void *herder);
+extern void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn);
 
 #endif /* TCPHA_FE_CLIENT_CONNECTION_H_ */

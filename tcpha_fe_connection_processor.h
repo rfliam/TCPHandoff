@@ -18,6 +18,7 @@
  */
 struct event_process {
 	struct tcpha_fe_conn *conn;
+    struct tcpha_fe_herder *herder;
 	unsigned int events;
 	struct work_struct work;
 };

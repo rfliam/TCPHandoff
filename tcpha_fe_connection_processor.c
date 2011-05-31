@@ -42,6 +42,8 @@ void event_process_free(struct event_process* ep)
 
 /* External (public) methods */
 /*---------------------------------------------------------------------------*/
+/* TODO: Do we really need to be doing coping at all? Just start a state machine reading from
+   the sockets input buffer? */
 void process_connection(void *data)
 {
     struct kvec vec;
@@ -83,15 +85,14 @@ void process_connection(void *data)
             conn->request.hdrlen = hdrlen;
             printk(KERN_ALERT "   Got String: %s\n\n", conn->request.hdr->buffer);
         }
-        if (len == EAGAIN)
-            printk(KERN_ALERT "   EAGAIN Eror\n");
 
         /* Process the message for handoff if needed */
     }
 
     /* Remove the socket from the list */
-    if (events & (POLLHUP | POLLERR | POLLRDHUP)) {
+    if (events & POLLRDHUP) {
         printk(KERN_ALERT "   Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
+        tcpha_fe_conn_destroy(conn);
     }
 
     /* We are done processing them, free the item we where processing */

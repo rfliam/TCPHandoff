@@ -35,7 +35,6 @@ static inline void herder_free(struct tcpha_fe_herder *herder);
 
 static inline void herder_list_init(struct herder_list *herders);
 
-static inline void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn);
 /* Function implementations */
 /*---------------------------------------------------------------------------*/
 
@@ -236,17 +235,21 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 
 /* Tear down function */
 /*---------------------------------------------------------------------------*/
-static inline void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn)
+extern void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn)
 {
+    tcp_epoll_remove(conn);
+
+    write_lock(&herder->pool_lock)
+    list_del(&conn->list);
+    write_unlock(&herder->pool_lock);
+
     if (conn->csock)
         sock_release(conn->csock);
     conn->csock = NULL;
-    list_del(&conn->list);
-
-    conn->request.hdrlen = 0;
     if (conn->request.hdr)
         http_header_free(conn->request.hdr);
     conn->request.bodylen = 0;
+    
 
     kmem_cache_free(tcpha_fe_conn_cachep, conn);
 }
@@ -324,6 +327,7 @@ int tcpha_fe_herder_run(void *data)
             /* Copy the gathered events and clear them */
             ep->conn = conns[i];
             ep->events = conns[i]->events;
+            ep->herder = herder;
             conns[i]->events = 0;
 
             /* Queue up someone to deal with those events */
