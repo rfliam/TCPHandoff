@@ -6,6 +6,12 @@
 
 struct kmem_cache *event_process_memcache_ptr;
 
+/* Private Methods */
+/*---------------------------------------------------------------------------*/
+static inline void process_pollin(struct tcpha_fe_conn *conn);
+static inline void process_pollrdhup(struct tcpha_fe_herder *herder, struct tcpha_fe_conn *conn);
+
+
 /* Constructore/destructor methods */
 /*---------------------------------------------------------------------------*/
 
@@ -46,58 +52,69 @@ void event_process_free(struct event_process* ep)
    the sockets input buffer? */
 void process_connection(void *data)
 {
-    struct kvec vec;
-    struct msghdr msg;
-    int len;
-    int hdrlen;
     struct event_process *ep = data;
     struct tcpha_fe_conn *conn = ep->conn;
     unsigned int events = ep->events;
     struct inet_sock *sk = inet_sk(conn->csock->sk);
-    msg.msg_control = NULL;
-    msg.msg_controllen = 0;
 
-
-    printk(KERN_ALERT "Work done on connection %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
-    printk(KERN_ALERT "   Event Flags:\n");
-    printk(KERN_ALERT POLLMASKFMT, POLLMASK(events));
-    /* TODO: These handlers should be seperate methods. */
+    printk(KERN_ALERT "Working on connection %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
     /* Run throught he events to process */
     if (events & POLLIN) {
-        /* If we already have data on the connection, make sure to append */
-        if (conn->request.hdr) {
-            printk(KERN_ALERT "  Appending to Buffer\n");
-            hdrlen = conn->request.hdrlen;
-            vec.iov_base = &conn->request.hdr->buffer[hdrlen];
-            vec.iov_len = MAX_INPUT_SIZE - hdrlen;
-        } else {
-            /* Else setup the new buffer */
-            conn->request.hdr = http_header_alloc();
-            conn->request.hdrlen = 0;
-            vec.iov_base = &conn->request.hdr->buffer;
-        }
-
-        /* Get the message, don't wait (we will come back if we need too!) */
-        len = kernel_recvmsg(conn->csock, &msg, &vec, 1, MAX_INPUT_SIZE, MSG_DONTWAIT);
-        hdrlen = conn->request.hdrlen + len;
-        /* Append the message */
-        if (len > 0 && hdrlen < MAX_INPUT_SIZE) {
-            conn->request.hdr->buffer[hdrlen + 1] = '\0';
-            conn->request.hdrlen = hdrlen;
-            printk(KERN_ALERT "   Got String: %s\n\n", conn->request.hdr->buffer);
-        }
-
-        /* Process the message for handoff if needed */
+        process_pollin(conn);
     }
 
     /* Remove the socket from the list */
     if (events & POLLRDHUP) {
-        if (atomic_dec_and_test(&conn->alive)) {
-            printk(KERN_ALERT "   Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
-            tcpha_fe_conn_destroy(ep->herder, conn);
-        }
+        process_pollrdhup(ep->herder, conn);
     }
 
     /* We are done processing them, free the item we where processing */
     event_process_free(ep);
+}
+
+/* Handlers for different poll events */
+/*---------------------------------------------------------------------------*/
+
+static inline void process_pollin(struct tcpha_fe_conn *conn)
+{
+    struct kvec vec;
+    struct msghdr msg;
+    int len;
+    int hdrlen;
+    msg.msg_control = NULL;
+    msg.msg_controllen = 0;
+
+    /* If we already have data on the connection, make sure to append */
+    if (conn->request.hdr) {
+        printk(KERN_ALERT "  Appending to Buffer\n");
+        hdrlen = conn->request.hdrlen;
+        vec.iov_base = &conn->request.hdr->buffer[hdrlen];
+        vec.iov_len = MAX_INPUT_SIZE - hdrlen;
+    } else {
+        /* Else setup the new buffer */
+        conn->request.hdr = http_header_alloc();
+        conn->request.hdrlen = 0;
+        vec.iov_base = &conn->request.hdr->buffer;
+    }
+
+    /* Get the message, don't wait (we will come back if we need too!) */
+    len = kernel_recvmsg(conn->csock, &msg, &vec, 1, MAX_INPUT_SIZE, MSG_DONTWAIT);
+    hdrlen = conn->request.hdrlen + len;
+    /* Append the message */
+    if (len > 0 && hdrlen < MAX_INPUT_SIZE) {
+        conn->request.hdr->buffer[hdrlen + 1] = '\0';
+        conn->request.hdrlen = hdrlen;
+        printk(KERN_ALERT "   Buffer Now: %s\n\n", conn->request.hdr->buffer);
+    }
+
+    /* Process the message for handoff if needed */
+}
+
+static inline void process_pollrdhup(struct tcpha_fe_herder *herder, struct tcpha_fe_conn *conn)
+{
+    struct inet_sock *sk = inet_sk(conn->csock->sk);
+    if (atomic_dec_and_test(&conn->alive)) {
+        printk(KERN_ALERT "   Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
+        tcpha_fe_conn_destroy(herder, conn);
+    }
 }
