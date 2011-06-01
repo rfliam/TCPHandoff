@@ -82,7 +82,7 @@ void herder_destroy(struct tcpha_fe_herder *herder)
     write_lock(&herder->pool_lock);
     list_for_each_entry_safe(conn, next, &herder->conn_pool, list) {
         tcp_epoll_remove(herder->eventpoll, conn);
-        tcpha_fe_conn_destroy(conn);
+        tcpha_fe_conn_destroy(herder, conn);
         printk(KERN_ALERT "Connection destroyed on Pool: %u\n", herder->cpu);
     }
     list_del(&herder->conn_pool);
@@ -236,11 +236,11 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
 
 /* Tear down function */
 /*---------------------------------------------------------------------------*/
-extern void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn)
+extern void tcpha_fe_conn_destroy(struct tcpha_fe_herder *herder, struct tcpha_fe_conn *conn)
 {
-    tcp_epoll_remove(conn);
+    tcp_epoll_remove(herder->eventpoll, conn);
 
-    write_lock(&herder->pool_lock)
+    write_lock(&herder->pool_lock);
     list_del(&conn->list);
     write_unlock(&herder->pool_lock);
 

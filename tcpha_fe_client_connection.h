@@ -90,6 +90,6 @@ extern int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock
  * run this will return less than 0. 
  */
 extern int tcpha_fe_herder_run(void *herder);
-extern void tcpha_fe_conn_destroy(struct tcpha_fe_conn* conn);
+extern void tcpha_fe_conn_destroy(struct tcpha_fe_herder *herder, struct tcpha_fe_conn *conn);
 
 #endif /* TCPHA_FE_CLIENT_CONNECTION_H_ */

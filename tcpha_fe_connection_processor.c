@@ -61,6 +61,7 @@ void process_connection(void *data)
     printk(KERN_ALERT "Work done on connection %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
     printk(KERN_ALERT "   Event Flags:\n");
     printk(KERN_ALERT POLLMASKFMT, POLLMASK(events));
+    /* TODO: These handlers should be seperate methods. */
     /* Run throught he events to process */
     if (events & POLLIN) {
         /* If we already have data on the connection, make sure to append */
@@ -93,7 +94,7 @@ void process_connection(void *data)
     if (events & POLLRDHUP) {
         if (atomic_dec_and_test(&conn->alive)) {
             printk(KERN_ALERT "   Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
-            tcpha_fe_conn_destroy(conn);
+            tcpha_fe_conn_destroy(ep->herder, conn);
         }
     }
 
