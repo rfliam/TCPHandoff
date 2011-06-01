@@ -198,6 +198,7 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
     connection->csock = sock;
     INIT_LIST_HEAD(&connection->list);
     connection->request.hdr = NULL;
+    atomic_set(&connection->alive, 2);
 
     /* search for least loaded pool */
     read_lock(&herders->lock);
@@ -294,6 +295,8 @@ int destroy_connections(struct herder_list *herders)
     return err;
 }
 
+/* TODO: We really shouldn't be allocing and deallocing here, we can setup
+   the tcpha_fe_conn to be handed of directly I think... */
 /* This is function responsible for maintaing our connection
  * pools, polling the open connections, and scheduling work to be
  * done on connections when apropriate.

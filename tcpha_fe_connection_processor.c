@@ -91,8 +91,10 @@ void process_connection(void *data)
 
     /* Remove the socket from the list */
     if (events & POLLRDHUP) {
-        printk(KERN_ALERT "   Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
-        tcpha_fe_conn_destroy(conn);
+        if (atomic_dec_and_test(&conn->alive)) {
+            printk(KERN_ALERT "   Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
+            tcpha_fe_conn_destroy(conn);
+        }
     }
 
     /* We are done processing them, free the item we where processing */

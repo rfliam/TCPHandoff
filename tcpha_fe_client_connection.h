@@ -34,6 +34,7 @@ struct tcpha_fe_conn {
 	struct socket *csock;	/* socket connected to client */
 	struct list_head list;	/* d-linked list head */ 
 	struct http_request request;
+    atomic_t alive;
 };
 
 struct herder_list {
