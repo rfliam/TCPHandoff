@@ -33,12 +33,12 @@ void http_destroy(void)
 /* NOTE: For the purposes of routing, we ignore the remaining
    requests in a pipelined HTTP request. This may be subject to change
    in the future. */
-int http_process_connection(struct tcpha_fe_conn *conn)
+int http_process_connection(struct tcpha_fe_conn *conn, int *hash)
 {
     int i = 0;
     int state = 0;
     int hdrlen = conn->request.hdrlen;
-    int hash = 0;
+    int h = 0;
     /* Ignore the method (We don't care), set path only
     at least for now */
     for (; i < hdrlen && conn->request.hdr->buffer[i] != ' '; i++) {
@@ -52,7 +52,7 @@ int http_process_connection(struct tcpha_fe_conn *conn)
 
     /* TODO: Option to ignore query... (eg. stop at ?) */
     for (; i < hdrlen && conn->request.hdr->buffer[i] != ' '; i++) {
-        hash = 31 * hash + (int)conn->request.hdr->buffer[i];
+        h = 31 * h + (int)conn->request.hdr->buffer[i];
     }
 
     if (!(i < hdrlen)) {
@@ -70,7 +70,8 @@ int http_process_connection(struct tcpha_fe_conn *conn)
             state++;
         }
         if (state == 4) {
-            return hash;
+            (*hash) = h;
+            return HDR_READ_ERROR;
         }
     }
 

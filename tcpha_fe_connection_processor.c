@@ -74,13 +74,12 @@ void process_connection(void *data)
 
 /* Handlers for different poll events */
 /*---------------------------------------------------------------------------*/
-
 static inline void process_pollin(struct tcpha_fe_conn *conn)
 {
     struct kvec vec;
     struct msghdr msg;
-    int len;
-    int hdrlen;
+    int len, hdrlen;
+    int err, hash;
     msg.msg_control = NULL;
     msg.msg_controllen = 0;
 
@@ -108,6 +107,13 @@ static inline void process_pollin(struct tcpha_fe_conn *conn)
     }
 
     /* Process the message for handoff if needed */
+    err = http_process_connection(conn, &hash);
+
+    if (!err) {
+        return;
+    } else {
+        /* Pick a backend, and schedule an xmit on it */
+    }
 }
 
 static inline void process_pollrdhup(struct tcpha_fe_herder *herder, struct tcpha_fe_conn *conn)

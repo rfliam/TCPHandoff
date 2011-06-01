@@ -31,7 +31,20 @@ void http_destroy(void);
 struct http_header *http_header_alloc(void);
 void http_header_free(struct http_header *hdr);
 
-/* Work on a header... */
+
 struct tcpha_fe_conn;
-int http_process_connection(struct tcpha_fe_conn *conn);
+
+/**
+ * Work on a header.
+ * 
+ * @author rfliam200 (6/1/2011)
+ * 
+ * @param conn The connection (with already exsisting header to 
+ *             work on).
+ * @param hash A integer to fill with the computed hash value.
+ * 
+ * @return int 0 if a complete and correct header was read, 
+ *         HDR_READ_ERROR otherwise.
+ */
+int http_process_connection(struct tcpha_fe_conn *conn, int *hash);
 #endif
