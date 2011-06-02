@@ -47,17 +47,19 @@ int http_process_connection(struct tcpha_fe_conn *conn, int *hash)
     if (!(i + 1 < hdrlen)) {
         return HDR_READ_ERROR;
     } else {
+        printk(KERN_ALERT "   Found First Space at: %d ... ", i);
         conn->request.hdr->request_uri = &conn->request.hdr->buffer[i + 1];
     }
 
     /* TODO: Option to ignore query... (eg. stop at ?) */
-    for (; i < hdrlen && conn->request.hdr->buffer[i] != ' '; i++) {
+    for (i++; i < hdrlen && conn->request.hdr->buffer[i] != ' '; i++) {
         h = 31 * h + (int)conn->request.hdr->buffer[i];
     }
 
     if (!(i < hdrlen)) {
         return HDR_READ_ERROR;
     } else {
+        printk(KERN_ALERT "Found Second Space at: %d ... ", i);
         conn->request.hdr->uri_len = i;
     }
 
@@ -71,7 +73,8 @@ int http_process_connection(struct tcpha_fe_conn *conn, int *hash)
         }
         if (state == 4) {
             (*hash) = h;
-            return HDR_READ_ERROR;
+            printk(KERN_ALERT "Found Header End\n");
+            return 0;
         }
     }
 

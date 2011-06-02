@@ -108,11 +108,11 @@ static inline void process_pollin(struct tcpha_fe_conn *conn)
 
     /* Process the message for handoff if needed */
     err = http_process_connection(conn, &hash);
-
-    if (!err) {
+    if (err) {
         return;
     } else {
-        /* Pick a backend, and schedule an xmit on it */
+        /* Pick a backend, and schedule an send it on */
+        printk(KERN_ALERT "Calculated Hash: %d\n", hash);
     }
 }
 

@@ -80,19 +80,24 @@ void herder_destroy(struct tcpha_fe_herder *herder)
 
     /* Cleanup connection pool */
     write_lock(&herder->pool_lock);
+    printk(KERN_ALERT "Cleaning up connections\n");
     list_for_each_entry_safe(conn, next, &herder->conn_pool, list) {
-        tcp_epoll_remove(herder->eventpoll, conn);
         tcpha_fe_conn_destroy(herder, conn);
-        printk(KERN_ALERT "Connection destroyed on Pool: %u\n", herder->cpu);
+        printk(KERN_ALERT "   Connection destroyed on Pool: %u\n", herder->cpu);
     }
+    printk(KERN_ALERT "Freeing Pool ... ");
     list_del(&herder->conn_pool);
     write_unlock(&herder->pool_lock);
 
     /* Cleanup epoll */
+    printk(KERN_ALERT "Deleting From Herder List ... ");
     list_del(&herder->herder_list);
+    printk(KERN_ALERT "Freeing From Epoll ... ");
     tcp_epoll_destroy(herder->eventpoll);
+    printk(KERN_ALERT "Freeing Herder ... ");
 
     herder_free(herder);
+    printk(KERN_ALERT "Herder cleaned up\n");
 }
 
 static inline struct work_struct *work_alloc() 
