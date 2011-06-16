@@ -18,8 +18,9 @@
  */
 struct tcpha_be_server {
     unsigned int lport;
-    unsigned int laddress;
+    unsigned int laddr;
     struct socket *listener;
+    struct socket *user_sock;
     struct list_head fe_connections_list;
     spinlock_t fe_connections_lock;
     unsigned int num_fe_connections;

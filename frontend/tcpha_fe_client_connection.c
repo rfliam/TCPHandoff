@@ -4,6 +4,10 @@
  *  Created on: Apr 5, 2011
  *      Author: rfliam200
  */
+/* BIG TODO: The "list" of connections probably needs to be
+   turned into a radix tree so I can look up incoming connections faster
+   in the netfilter module and pick off incoming packets that should
+   just be forwarded with less work. (Already persisting connections basically).*/
 
 #include "tcpha_fe_client_connection.h"
 #include "tcpha_fe_connection_processor.h"
@@ -200,10 +204,12 @@ int tcpha_fe_conn_create(struct herder_list *herders, struct socket *sock)
                                                         GFP_KERNEL);
     struct inet_sock *isk = inet_sk(sock->sk);
 
+    /* TODO: This should be moved to an alloc init method... */
     connection->csock = sock;
     INIT_LIST_HEAD(&connection->list);
     connection->request.hdr = NULL;
     atomic_set(&connection->alive, 2);
+    rwlock_init(&connection->lock);
 
     /* search for least loaded pool */
     read_lock(&herders->lock);
@@ -267,14 +273,14 @@ static void destroy_connection_herders(struct herder_list *herders)
 {   
     struct tcpha_fe_herder *herder, *next;
     int err = 0;
-    printk(KERN_ALERT "Destroying Connections\n");
+    printk(KERN_ALERT "Destroying Connections ... ");
 
     list_for_each_entry_safe(herder, next, &herders->list, herder_list) {
         if (!herder) {
             printk(KERN_ALERT "Herder Error\n");
             continue;
         }
-        printk(KERN_ALERT "Stoping Herder %u\n", herder->cpu);
+        printk(KERN_ALERT "   Stoping Herder %u ... ", herder->cpu);
         /* Tell the epoll to go ahead and wake */
         set_bit(0, &herder->eventpoll->should_wake);
         /* Trigger the wake with kthread stop */
@@ -283,7 +289,7 @@ static void destroy_connection_herders(struct herder_list *herders)
             printk(KERN_ALERT "Error Killing Proc\n");
         /* We need to remove the epoll stuff before killing the connection
          * other wise we will end up with bad memory access on the socket */
-        printk(KERN_ALERT "Destroying Herder\n");
+        printk(KERN_ALERT "Destroying Herder %u\n", herder->cpu);
         herder_destroy(herder);
     }
 }
@@ -327,11 +333,11 @@ int tcpha_fe_herder_run(void *data)
         if (!numevents)
             continue;
 
-        printk(KERN_ALERT "Processing Items\n");
+        printk(KERN_ALERT "Processing Items:\n");
 
         for (i = 0; i < numevents; i++) {
             event_process_alloc(&ep);
-            printk(KERN_ALERT "   Item %d\n", i);
+            printk(KERN_ALERT "   Item %d ... ", i);
             /* Copy the gathered events and clear them */
             ep->conn = conns[i];
             ep->events = conns[i]->events;
@@ -339,7 +345,7 @@ int tcpha_fe_herder_run(void *data)
             conns[i]->events = 0;
 
             /* Queue up someone to deal with those events */
-            printk(KERN_ALERT "   Adding to workqueue\n");
+            printk(KERN_ALERT "Adding to workqueue\n");
             INIT_WORK(&ep->work, process_connection, ep);
             err = queue_work(herder->processor_work, &ep->work);
             if (!err)
@@ -349,7 +355,7 @@ int tcpha_fe_herder_run(void *data)
     }
     __set_current_state(TASK_RUNNING);
 
-    printk(KERN_ALERT "Herder Shutting Down\n");
+    printk(KERN_ALERT "Herder %u Shutting Down\n", herder->cpu);
     kfree(conns);
 
     return 0;

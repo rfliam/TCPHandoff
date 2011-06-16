@@ -1,8 +1,9 @@
 #ifndef TCPHA_FE_CLIENT_CONNECTION_H_
-#define TCPHA_FE_CLIENT_CONNECTION_H_
+#define TCPHA_FE_CLIENT_CONNEC
 
+/* TODO: Refactor to "common" folder for backend and front end. */
 #include <linux/version.h>
-#include <net/socket.h>
+#include <net/sock.h>
 #include <linux/net.h>
 /* Functions here where added to later versions of the kernel
  * and are only used/defined if need be */

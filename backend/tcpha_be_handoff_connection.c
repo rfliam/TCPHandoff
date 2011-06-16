@@ -58,6 +58,7 @@ static bool new_conn(struct tcpha_be_fe_connection *conn)
     buffer_sk = (struct sock*)conn->buffer[11];
     create_sk(&new_sock, buffer_sk);
 
+    /* Test to see if the newely created sock(et) is usable... */
    	/* Grab the user space listening socket and add ourselves to it */
     /* No fanciness necessary here, just adding to the listening socket
        is sufficient */

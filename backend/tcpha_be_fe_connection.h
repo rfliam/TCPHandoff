@@ -10,7 +10,6 @@
 #include <net/sock.h>
 #include <net/tcp.h>
 #include <linux/tcp.h>
-#include <linux/wait.h>
 
 #define MAX_BUFFER_SIZE 2048
 

@@ -27,7 +27,7 @@ int tcpha_be_server_daemon(void * __service)
 	struct tcpha_be_server *server = (struct tcpha_be_server*)__service;
 	struct socket *newsock;
 	int err;
-	printk(KERN_ALERT "Server Starting Up\n");
+	dtbe_printk(KERN_ALERT "Server Starting Up\n");
 
 	/* Setup our server socket */
 	err = setup_server_socket(server);
@@ -46,7 +46,7 @@ int tcpha_be_server_daemon(void * __service)
 			if (err < 0)
 				goto connection_err;
 
-			printk(KERN_ALERT "Connection made\n");
+			dtbe_printk(KERN_ALERT "Connection made\n");
 			continue;
 connection_err:
 			sock_release(newsock);
@@ -55,13 +55,13 @@ connection_err:
 	}
 
 	/* We are done */
-	printk(KERN_ALERT "Server Shutting Down\n");
+	dtbe_printk(KERN_ALERT "Server Shutting Down\n");
 	pull_down_server_socket(server);
 	atomic_set(&server->running, 0);
 	return 0;
 
 server_setup_fail:
-	printk(KERN_ALERT "Server Failed to Initialize\n");
+	dtbe_printk(KERN_ALERT "Server Failed to Initialize\n");
 	return -1;	
 }
 
@@ -74,7 +74,7 @@ int setup_server_socket(struct tcpha_be_server *server)
 	struct socket *sock;
 	struct sockaddr_in sin;
 	int error;
-	printk(KERN_ALERT "Creating Main Socket\n");
+	dtbe_printk(KERN_ALERT "Creating Main Socket\n");
 
 	/* First create a socket */
 	error = sock_create_kern(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
@@ -82,7 +82,7 @@ int setup_server_socket(struct tcpha_be_server *server)
 		printk(KERN_ALERT "Error during creation of socket; terminating\n");
 		return error;
 	}
-	printk(KERN_ALERT "Binding Main Socket\n");
+	pdtbe_rintk(KERN_ALERT "Binding Main Socket\n");
 	/* Now bind the socket */
 	sin.sin_family = AF_INET;
     /* TODO: Limit this to connections coming from front end */
@@ -99,7 +99,7 @@ int setup_server_socket(struct tcpha_be_server *server)
 		return error;
 	}
 
-	printk(KERN_ALERT "Listening on Main Socket\n");
+	dtbe_printk(KERN_ALERT "Listening on Main Socket\n");
 	/* Now, start listening on the socket */
 	error = kernel_listen(sock, tcphafe_max_backlog);
 	if (error != 0) {

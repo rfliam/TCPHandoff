@@ -9,6 +9,8 @@
  *  of the spinlocks as they disable interrupts during there operation. Hold them for
  *  as short a time as possible!.
  */
+ /* This will be woken up when we recieve acks too...  may need to redirect-acks from here?
+    Alternative is netfilter but than I need to do lookups to find sockets from a global pool. */
 /* Memory cache for epoll items */
 struct kmem_cache *tcp_ep_item_cachep = NULL;
 atomic_t item_cache_use = ATOMIC_INIT(0);

@@ -10,7 +10,7 @@ struct kmem_cache *event_process_memcache_ptr;
 /*---------------------------------------------------------------------------*/
 static inline void process_pollin(struct tcpha_fe_conn *conn);
 static inline void process_pollrdhup(struct tcpha_fe_herder *herder, struct tcpha_fe_conn *conn);
-
+static void pick_backend(struct tcpha_fe_conn *conn, int hash);
 
 /* Constructore/destructor methods */
 /*---------------------------------------------------------------------------*/
@@ -57,7 +57,7 @@ void process_connection(void *data)
     unsigned int events = ep->events;
     struct inet_sock *sk = inet_sk(conn->csock->sk);
 
-    printk(KERN_ALERT "Working on connection %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
+    printk(KERN_ALERT "Working on connection %u.%u.%u.%u ... ", NIPQUAD(sk->daddr));
     /* Run throught he events to process */
     if (events & POLLIN) {
         process_pollin(conn);
@@ -85,7 +85,6 @@ static inline void process_pollin(struct tcpha_fe_conn *conn)
 
     /* If we already have data on the connection, make sure to append */
     if (conn->request.hdr) {
-        printk(KERN_ALERT "  Appending to Buffer\n");
         hdrlen = conn->request.hdrlen;
         vec.iov_base = &conn->request.hdr->buffer[hdrlen];
         vec.iov_len = MAX_INPUT_SIZE - hdrlen;
@@ -97,14 +96,17 @@ static inline void process_pollin(struct tcpha_fe_conn *conn)
     }
 
     /* Get the message, don't wait (we will come back if we need too!) */
+    write_lock(&conn->lock);
     len = kernel_recvmsg(conn->csock, &msg, &vec, 1, MAX_INPUT_SIZE, MSG_DONTWAIT);
     hdrlen = conn->request.hdrlen + len;
     /* Append the message */
     if (len > 0 && hdrlen < MAX_INPUT_SIZE) {
+        printk(KERN_ALERT "  Appending to Buffer %d characters ... ", len);
         conn->request.hdr->buffer[hdrlen + 1] = '\0';
         conn->request.hdrlen = hdrlen;
-        printk(KERN_ALERT "   Buffer Now: %s\n\n", conn->request.hdr->buffer);
+        printk(KERN_ALERT "Buffer Now: \n%s\n", conn->request.hdr->buffer);
     }
+    write_unlock(&conn->lock);
 
     /* Process the message for handoff if needed */
     err = http_process_connection(conn, &hash);
@@ -116,11 +118,16 @@ static inline void process_pollin(struct tcpha_fe_conn *conn)
     }
 }
 
+static void pick_backend(struct tcpha_fe_conn *conn, int hash)
+{
+
+}
+
 static inline void process_pollrdhup(struct tcpha_fe_herder *herder, struct tcpha_fe_conn *conn)
 {
     struct inet_sock *sk = inet_sk(conn->csock->sk);
     if (atomic_dec_and_test(&conn->alive)) {
-        printk(KERN_ALERT "   Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
+        printk(KERN_ALERT "Removing Connection: %u.%u.%u.%u\n", NIPQUAD(sk->daddr));
         tcpha_fe_conn_destroy(herder, conn);
     }
 }
