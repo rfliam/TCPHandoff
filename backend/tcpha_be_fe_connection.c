@@ -2,6 +2,7 @@
 #include "tcpha_be_handoff_connection.h"
 #include "tcpha_be.h"
 #include "../frontend/tcpha_fe_socket_functions.h"
+#include "tcpha_be_debug.h"
 
 int tcphafe_max_backlog = 2048;
 int main_sleep_time = 1 * HZ;
@@ -82,7 +83,7 @@ int setup_server_socket(struct tcpha_be_server *server)
 		printk(KERN_ALERT "Error during creation of socket; terminating\n");
 		return error;
 	}
-	pdtbe_rintk(KERN_ALERT "Binding Main Socket\n");
+	dtbe_printk(KERN_ALERT "Binding Main Socket\n");
 	/* Now bind the socket */
 	sin.sin_family = AF_INET;
     /* TODO: Limit this to connections coming from front end */
